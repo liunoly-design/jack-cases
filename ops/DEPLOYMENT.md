@@ -17,7 +17,7 @@ The deploy script verifies the full SHA and requires it to be reachable from `or
 - `/etc/systemd/system/jack-cases.service`: supervised API service on `127.0.0.1:3001`.
 - OpenResty serves `apps/web/dist` and proxies `/api/` to the API.
 
-The server requires Node.js/npm, Git, curl, and the `jack-cases` system user. First-time setup creates the directories and user, installs `ops/jack-cases.service` and the OpenResty vhost, issues TLS for `jack-cases.minapp.xin`, configures the authenticated hook, and performs the first deploy with a full `main` commit SHA.
+The server requires Node.js/npm, matching Node headers under `/usr/include/node`, Python 3, a C++ build toolchain (`make` and `g++`), Git, curl, and the `jack-cases` system user. The deploy script points node-gyp at `/usr` so native modules can compile against those installed headers without downloading them. First-time setup creates the directories and user, installs `ops/jack-cases.service` and the OpenResty vhost, issues TLS for `jack-cases.minapp.xin`, configures the authenticated hook, and performs the first deploy with a full `main` commit SHA.
 
 ## Operations
 

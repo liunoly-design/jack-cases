@@ -32,7 +32,7 @@ if [[ ! -f "$release/apps/api/dist/server.js" || ! -f "$release/apps/web/dist/in
   install -d -o jack-cases -g jack-cases -m 0755 "$release"
   if ! { git --git-dir="$repository" archive "$sha" | tar -x -C "$release" &&
     chown -R jack-cases:jack-cases "$release" &&
-    runuser -u jack-cases -- env HOME="$base/home" npm ci --prefix "$release" &&
+    runuser -u jack-cases -- env HOME="$base/home" npm_config_nodedir=/usr npm ci --prefix "$release" &&
     runuser -u jack-cases -- env HOME="$base/home" npm --prefix "$release" run build; }; then
     rm -rf "$release"
     exit 1
