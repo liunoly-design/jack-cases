@@ -14,7 +14,7 @@ fi
 install -d -o root -g root -m 0755 "$base" "$releases"
 install -d -o jack-cases -g jack-cases -m 0750 "$base/home"
 exec 9>"$base/deploy.lock"
-flock -n 9 || { echo "another deployment is running" >&2; exit 1; }
+flock 9
 
 if [[ ! -d "$repository" ]]; then
   git clone --bare https://github.com/tans/jack-cases.git "$repository"

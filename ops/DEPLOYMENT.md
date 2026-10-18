@@ -2,9 +2,9 @@
 
 ## Automatic releases
 
-`.github/workflows/deploy.yml` runs on pushes to `main` and manual workflow dispatch. It installs dependencies, runs TypeScript checks and production builds, then sends the exact GitHub commit SHA to `https://hook.minapp.xin/hooks/jack-cases`. Configure the repository Actions secret `DEPLOY_HOOK_TOKEN` with the token installed in the server's `/data/webhook/jack-cases.json`. The hook only accepts POST requests with a matching `X-Deploy-Token` and passes the JSON `sha` field to the fixed `/data/jack-cases/deploy.sh` command.
+`.github/workflows/deploy.yml` runs on pushes to `main` and manual workflow dispatch. It installs dependencies, runs TypeScript checks and production builds, then sends the exact GitHub commit SHA to `https://hook.minapp.xin/hooks/jack-cases`. Configure the repository Actions secret `DEPLOY_HOOK_TOKEN` with the token installed in the server's `/data/webhook/jack-cases.json`. The hook only accepts POST requests with a matching `X-Deploy-Token` and passes the JSON `sha` field to the fixed `/data/jack-cases/dispatch.sh` command. The dispatcher queues a systemd job so the webhook response does not have to wait for a full production build; Actions then waits for `/api/health` to report the same deployed SHA.
 
-The deploy script verifies the full SHA and requires it to be reachable from `origin/main`. It builds a separate release, switches `/data/jack-cases/current` only after a successful build, restarts `jack-cases.service`, checks `/api/health`, and attempts to restore the previous release if the service does not become healthy. Successful deployments record the SHA in `/data/jack-cases/shared/DEPLOYED_COMMIT`.
+The deploy script verifies the full SHA and requires it to be reachable from `origin/main`. It builds a separate release, switches `/data/jack-cases/current` only after a successful build, restarts `jack-cases.service`, checks `/api/health`, and attempts to restore the previous release if the service does not become healthy. Successful deployments record the SHA in `/data/jack-cases/shared/DEPLOYED_COMMIT`; the health endpoint returns that commit for workflow verification.
 
 ## Server layout
 

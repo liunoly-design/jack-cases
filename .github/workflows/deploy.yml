@@ -20,7 +20,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-      - name: Deploy exact commit through webhook
+      - name: Queue deployment through webhook
         env:
           DEPLOY_HOOK_TOKEN: ${{ secrets.DEPLOY_HOOK_TOKEN }}
           DEPLOY_SHA: ${{ github.sha }}
@@ -32,3 +32,16 @@ jobs:
             -H 'Content-Type: application/json' \
             --data "{\"sha\":\"$DEPLOY_SHA\"}" \
             https://hook.minapp.xin/hooks/jack-cases
+      - name: Wait for the deployed commit
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent --show-error https://jack-cases.minapp.xin/api/health | grep -Fq "\"commit\":\"$DEPLOY_SHA\""; then
+              echo "Production is serving $DEPLOY_SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for production commit $DEPLOY_SHA" >&2
+          exit 1

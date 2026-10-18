@@ -12,6 +12,7 @@ Environment=PORT=3001
 Environment=DATABASE_URL=/data/jack-cases/shared/jack-case.db
 Environment=STORAGE_DIR=/data/jack-cases/shared/uploads
 Environment=APP_ORIGIN=https://jack-cases.minapp.xin
+Environment=DEPLOYED_COMMIT_FILE=/data/jack-cases/shared/DEPLOYED_COMMIT
 EnvironmentFile=/data/jack-cases/shared/.env
 ExecStart=/usr/bin/node /data/jack-cases/current/apps/api/dist/server.js
 Restart=always
