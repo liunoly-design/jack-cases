@@ -11,6 +11,8 @@ The deploy script verifies the full SHA and requires it to be reachable from `or
 - `/data/jack-cases/repository.git`: bare Git mirror used to fetch `main`.
 - `/data/jack-cases/releases/<sha>`: built application releases.
 - `/data/jack-cases/current`: symlink to the active release.
+- `/opt/1panel/apps/openresty/openresty/www/sites/jack-cases.minapp.xin/releases/<sha>`: static site files visible inside the OpenResty container.
+- `/opt/1panel/apps/openresty/openresty/www/sites/jack-cases.minapp.xin/current`: symlink to the active static site release.
 - `/data/jack-cases/shared/.env`: private runtime settings, including `SESSION_SECRET`.
 - `/data/jack-cases/shared/jack-case.db`: persistent SQLite database.
 - `/data/jack-cases/shared/uploads`: persistent private image uploads.

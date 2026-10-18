@@ -4,6 +4,7 @@ set -Eeuo pipefail
 base=/data/jack-cases
 repository="$base/repository.git"
 releases="$base/releases"
+site=/opt/1panel/apps/openresty/openresty/www/sites/jack-cases.minapp.xin
 sha="${1:-}"
 
 if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
@@ -39,37 +40,59 @@ if [[ ! -f "$release/apps/api/dist/server.js" || ! -f "$release/apps/web/dist/in
   fi
 fi
 
+static_release="$site/releases/$sha"
+if [[ ! -f "$static_release/index.html" ]]; then
+  rm -rf "$static_release"
+  install -d -o root -g root -m 0755 "$static_release"
+  cp -a "$release/apps/web/dist/." "$static_release/"
+fi
+
 previous=""
 if [[ -L "$base/current" ]]; then
   previous="$(readlink -f "$base/current")"
 fi
+previous_static=""
+if [[ -L "$site/current" ]]; then
+  previous_static="$(readlink -f "$site/current")"
+fi
+rollback() {
+  if [[ -n "$previous" ]]; then
+    ln -sfn "$previous" "$base/current.rollback"
+    mv -Tf "$base/current.rollback" "$base/current"
+  else
+    rm -f "$base/current"
+  fi
+  if [[ -n "$previous_static" ]]; then
+    ln -sfn "$previous_static" "$site/current.rollback"
+    mv -Tf "$site/current.rollback" "$site/current"
+  else
+    rm -f "$site/current"
+  fi
+  systemctl restart jack-cases.service || true
+}
 rm -f "$base/current.next"
 ln -s "$release" "$base/current.next"
 mv -Tf "$base/current.next" "$base/current"
 
 if ! systemctl restart jack-cases.service || ! systemctl is-active --quiet jack-cases.service; then
-  if [[ -n "$previous" ]]; then
-    ln -s "$previous" "$base/current.rollback"
-    mv -Tf "$base/current.rollback" "$base/current"
-    systemctl restart jack-cases.service || true
-  fi
+  rollback
   echo "service failed after release activation; rollback attempted" >&2
   exit 1
 fi
 
 for attempt in {1..15}; do
   if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then
-    printf '%s\n' "$sha" > "$base/shared/DEPLOYED_COMMIT"
+    rm -f "$site/current.next"
+    ln -s "$static_release" "$site/current.next"
+    mv -Tf "$site/current.next" "$site/current"
+    printf '%s\n' "$sha" > "$base/shared/DEPLOYED_COMMIT.next"
+    mv -f "$base/shared/DEPLOYED_COMMIT.next" "$base/shared/DEPLOYED_COMMIT"
     echo "deployed $sha"
     exit 0
   fi
   sleep 2
 done
 
-if [[ -n "$previous" ]]; then
-  ln -s "$previous" "$base/current.rollback"
-  mv -Tf "$base/current.rollback" "$base/current"
-  systemctl restart jack-cases.service || true
-fi
+rollback
 echo "API health check failed; rollback attempted" >&2
 exit 1
