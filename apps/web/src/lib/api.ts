@@ -1,0 +1,3 @@
+export async function api<T=any>(url:string,options:RequestInit={}):Promise<T>{const res=await fetch('/api'+url,{credentials:'include',...options,headers:{...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...options.headers}});const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||`Request failed: ${res.status}`);return data;}
+export const post=(url:string,body:unknown)=>api(url,{method:'POST',body:JSON.stringify(body)});
+export const patch=(url:string,body:unknown)=>api(url,{method:'PATCH',body:JSON.stringify(body)});

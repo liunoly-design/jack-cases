@@ -1,0 +1,2 @@
+import { defineConfig } from 'drizzle-kit';
+export default defineConfig({schema:'./apps/api/src/schema.ts',out:'./apps/api/drizzle',dialect:'sqlite',dbCredentials:{url:process.env.DATABASE_URL ?? './storage/jack-case.db'}});
