@@ -4,7 +4,7 @@ import { randomBytes,randomUUID,createHash } from 'node:crypto';
 import fs from 'node:fs';import path from 'node:path';
 import bcrypt from 'bcryptjs';import sharp from 'sharp';import { eq,and,desc,isNull } from 'drizzle-orm';import { z } from 'zod';
 import {db} from './db.js';import {users,sessions,apiKeys,requirements,cases,casePrompts,media,requirementMedia,caseMedia,categories,reviews,auditLogs,caseEvents} from './schema.js';
-const app=new Koa();const r=new Router({prefix:'/api'});
+const app=new Koa();app.proxy=true;const r=new Router({prefix:'/api'});
 const deployedCommitFile=process.env.DEPLOYED_COMMIT_FILE;
 r.get('/health',ctx=>{let commit:string|null=null;if(deployedCommitFile){try{commit=fs.readFileSync(deployedCommitFile,'utf8').trim()||null;}catch{}}ctx.body={ok:true,commit};});
 const origin=process.env.APP_ORIGIN??'http://localhost:5173';app.use(cors({origin,credentials:true}));
@@ -53,4 +53,4 @@ r.patch('/users/:id',async ctx=>{const a=await actor(ctx);if(!['admin','super_ad
 r.get('/stats',async ctx=>{const a=await actor(ctx);admin(a);ctx.body={users:db.select().from(users).all().length,requirements:db.select().from(requirements).all().length,cases:db.select().from(cases).all().length,pending:db.select().from(requirements).where(eq(requirements.status,'submitted')).all().length};});
 r.get('/audit-logs',async ctx=>{const a=await actor(ctx);admin(a);ctx.body=db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(200).all();});
 app.use(r.routes()).use(r.allowedMethods());
-const port=Number(process.env.PORT??3001);app.listen(port,()=>console.log(`jack-case API http://localhost:${port}`));
+const port=Number(process.env.PORT??3001);app.listen(port,'127.0.0.1',()=>console.log(`jack-case API http://localhost:${port}`));
