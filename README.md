@@ -29,7 +29,7 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 替换邮箱为自己的邮箱，并重新登录。此操作必须在有数据库访问权限的服务器执行。
 
 ## API
-`POST /api/auth/register` `{email,password}` 生成账号、HttpOnly cookie 和仅显示一次的 `apiKey`。
+`POST /api/auth/register` `{email,password}` 自动生成账号、HttpOnly cookie 和仅显示一次的 `apiKey`。登录后可在「Agent 技能」页复制 Agent 配置文案，或更换 API Key；`POST /api/keys/rotate` 会立即撤销该账号当前有效的 key 并创建一把仅显示一次的新 key。
 
 `POST /api/requirements` 通过 cookie 或 `Authorization: Bearer wk_...` 认证。Body：
 ```json
@@ -48,11 +48,11 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 审核必须检查共享许可；**提示词和图片不会自动脱敏**，所有公开内容必须人工确认。
 
 ## 三分钟验收演示
-1. 注册学员，复制一次性 API Key；上传一张图片，提交勾选共享的需求。
+1. 注册学员，保存自动创建的一次性 API Key；上传一张图片，提交勾选共享的需求。
 2. 重新登录后“我的需求”仍可查看。使用 Bearer Key 通过 API 提交第二条需求。
 3. 使用终端提升可信任管理员账号；管理员进入需求管理，审核脱敏文字，选择安全图片并发布。
 4. 普通学员在案例商城打开已发布案例，复制需求与搭建提示词。
-5. 吊销 API Key 后确认 Bearer 访问失败；重启服务器确认数据持续存在。
+5. 更换 API Key 后确认旧 Bearer Key 访问失败、新 Key 可用；重启服务器确认数据持续存在。
 
 ## 已知限制 / 第二阶段
 - 当前只做人工脱敏和审核，尚未集成 AI 模型；不能将生成草稿视作安全脱敏。
