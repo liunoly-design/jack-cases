@@ -2,9 +2,9 @@
 
 ## Automatic releases
 
-`.github/workflows/deploy.yml` runs on pushes to `main` and manual workflow dispatch. It installs dependencies, runs TypeScript checks and production builds, then sends the exact GitHub commit SHA to the public endpoint `https://hook.minapp.xin/hooks/jack-cases`. The endpoint does not require authentication. Anyone who can reach it can request deployment of a commit reachable from `origin/main`, so keep the fixed command and SHA validation in place. The hook passes the JSON `sha` field to `/data/jack-cases/dispatch.sh`; the dispatcher validates it and queues a systemd job so the webhook response does not have to wait for a full production build. Actions then waits for `/api/health` to report the same deployed SHA.
+`.github/workflows/deploy.yml` runs on pushes to `main` and manual workflow dispatch. It installs dependencies, runs TypeScript checks and production builds, then sends the exact GitHub commit SHA to `https://hook.minapp.xin/hooks/jack-cases` with the `X-Deploy-Token` header. Store the matching value as the repository Actions secret `DEPLOY_HOOK_TOKEN` and in the server hook configuration; never commit it. The hook passes the JSON `sha` field to `/data/jack-cases/dispatch.sh`; the dispatcher validates it and queues a systemd job so the webhook response does not have to wait for a full production build. Actions then waits for `/api/health` to report the same deployed SHA.
 
-The deploy script verifies the full SHA and requires it to be reachable from `origin/main`. It builds a separate release, switches `/data/jack-cases/current` only after a successful build, restarts `jack-cases.service`, checks `/api/health`, and attempts to restore the previous release if the service does not become healthy. Successful deployments record the SHA in `/data/jack-cases/shared/DEPLOYED_COMMIT`; the health endpoint returns that commit for workflow verification.
+The deploy script retries transient GitHub fetch failures up to five times, verifies the full SHA, and requires it to be reachable from `origin/main`. It builds a separate release, switches `/data/jack-cases/current` only after a successful build, restarts `jack-cases.service`, checks `/api/health`, and attempts to restore the previous release if the service does not become healthy. Successful deployments record the SHA in `/data/jack-cases/shared/DEPLOYED_COMMIT`; the health endpoint returns that commit for workflow verification.
 
 ## Server layout
 
@@ -19,7 +19,7 @@ The deploy script verifies the full SHA and requires it to be reachable from `or
 - `/etc/systemd/system/jack-cases.service`: supervised API service on `127.0.0.1:3001`.
 - OpenResty serves `apps/web/dist` and proxies `/api/` to the API.
 
-The server requires Node.js/npm, matching Node headers under `/usr/include/node`, Python 3, a C++ build toolchain (`make` and `g++`), Git, curl, and the `jack-cases` system user. The deploy script points node-gyp at `/usr` so native modules can compile against those installed headers without downloading them. First-time setup creates the directories and user, installs `ops/jack-cases.service` and the OpenResty vhost, issues TLS for `jack-cases.minapp.xin`, configures the public `jack-cases` hook, and performs the first deploy with a full `main` commit SHA.
+The server requires Node.js/npm, matching Node headers under `/usr/include/node`, Python 3, a C++ build toolchain (`make` and `g++`), Git, and the `jack-cases` system user. The deploy script points node-gyp at `/usr` so native modules can compile against those installed headers without downloading them. First-time setup creates the directories and user, installs `ops/jack-cases.service` and the OpenResty vhost, issues TLS for `jack-cases.minapp.xin`, configures the `jack-cases` hook with a value trigger rule on the `X-Deploy-Token` header, and performs the first deploy with a full `main` commit SHA.
 
 ## Operations
 

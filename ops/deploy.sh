@@ -17,10 +17,23 @@ install -d -o jack-cases -g jack-cases -m 0750 "$base/home"
 exec 9>"$base/deploy.lock"
 flock 9
 
+retry_git_fetch() {
+  local attempt=1
+  until git --git-dir="$repository" fetch --prune origin +refs/heads/main:refs/remotes/origin/main; do
+    if (( attempt >= 5 )); then
+      echo "GitHub fetch failed after $attempt attempts" >&2
+      return 1
+    fi
+    echo "GitHub fetch failed (attempt $attempt/5); retrying" >&2
+    sleep "$attempt"
+    attempt=$((attempt + 1))
+  done
+}
+
 if [[ ! -d "$repository" ]]; then
   git clone --bare https://github.com/tans/jack-cases.git "$repository"
 fi
-git --git-dir="$repository" fetch --prune origin +refs/heads/main:refs/remotes/origin/main
+retry_git_fetch
 git --git-dir="$repository" cat-file -e "$sha^{commit}"
 git --git-dir="$repository" merge-base --is-ancestor "$sha" refs/remotes/origin/main || {
   echo "commit is not reachable from origin/main" >&2

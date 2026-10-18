@@ -23,10 +23,12 @@ jobs:
       - name: Queue deployment through webhook
         env:
           DEPLOY_SHA: ${{ github.sha }}
+          DEPLOY_HOOK_TOKEN: ${{ secrets.DEPLOY_HOOK_TOKEN }}
         run: |
           curl --fail --silent --show-error \
             --retry 3 --retry-delay 2 \
             -H 'Content-Type: application/json' \
+            -H "X-Deploy-Token: $DEPLOY_HOOK_TOKEN" \
             --data "{\"sha\":\"$DEPLOY_SHA\"}" \
             https://hook.minapp.xin/hooks/jack-cases
       - name: Wait for the deployed commit
