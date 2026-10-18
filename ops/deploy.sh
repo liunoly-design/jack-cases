@@ -53,7 +53,7 @@ if [[ -L "$base/current" ]]; then
 fi
 previous_static=""
 if [[ -L "$site/current" ]]; then
-  previous_static="$(readlink -f "$site/current")"
+  previous_static="$(readlink "$site/current")"
 fi
 rollback() {
   if [[ -n "$previous" ]]; then
@@ -83,7 +83,7 @@ fi
 for attempt in {1..15}; do
   if curl --fail --silent http://127.0.0.1:3001/api/health >/dev/null; then
     rm -f "$site/current.next"
-    ln -s "$static_release" "$site/current.next"
+    ln -s "releases/$sha" "$site/current.next"
     mv -Tf "$site/current.next" "$site/current"
     printf '%s\n' "$sha" > "$base/shared/DEPLOYED_COMMIT.next"
     mv -f "$base/shared/DEPLOYED_COMMIT.next" "$base/shared/DEPLOYED_COMMIT"
