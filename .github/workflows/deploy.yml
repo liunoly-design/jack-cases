@@ -22,13 +22,10 @@ jobs:
       - run: npm run build
       - name: Queue deployment through webhook
         env:
-          DEPLOY_HOOK_TOKEN: ${{ secrets.DEPLOY_HOOK_TOKEN }}
           DEPLOY_SHA: ${{ github.sha }}
         run: |
-          test -n "$DEPLOY_HOOK_TOKEN"
           curl --fail --silent --show-error \
             --retry 3 --retry-delay 2 \
-            -H "X-Deploy-Token: $DEPLOY_HOOK_TOKEN" \
             -H 'Content-Type: application/json' \
             --data "{\"sha\":\"$DEPLOY_SHA\"}" \
             https://hook.minapp.xin/hooks/jack-cases
