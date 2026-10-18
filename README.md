@@ -29,7 +29,7 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 替换邮箱为自己的邮箱，并重新登录。此操作必须在有数据库访问权限的服务器执行。
 
 ## API
-`POST /api/auth/register` `{email,password}` 自动生成账号、HttpOnly cookie 和仅显示一次的 `apiKey`。登录后可在「Agent 技能」页复制 Agent 配置文案，或更换 API Key；`POST /api/keys/rotate` 会立即撤销该账号当前有效的 key 并创建一把仅显示一次的新 key。
+`POST /api/auth/register` `{email,password}` 自动生成账号、HttpOnly cookie 和 `apiKey`。登录后可在「Agent 技能」页复制包含当前 API Key 明文的 Agent 配置文案，或更换 API Key；`POST /api/keys/rotate` 会立即撤销该账号当前有效的 key 并创建新 key。仅保存哈希的历史 key 无法还原，需轮换后才能复制包含明文的技能文案。
 
 `POST /api/requirements` 通过 cookie 或 `Authorization: Bearer wk_...` 认证。Body：
 ```json

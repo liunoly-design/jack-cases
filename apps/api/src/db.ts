@@ -10,7 +10,7 @@ sqlite.pragma('journal_mode = WAL');sqlite.pragma('foreign_keys = ON');
 sqlite.exec(`
 CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'student',status TEXT NOT NULL DEFAULT 'active',created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions(id_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS api_keys(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),name TEXT NOT NULL,prefix TEXT NOT NULL,hash TEXT NOT NULL UNIQUE,revoked_at INTEGER,last_used_at INTEGER,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS api_keys(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),name TEXT NOT NULL,prefix TEXT NOT NULL,hash TEXT NOT NULL UNIQUE,secret_value TEXT,revoked_at INTEGER,last_used_at INTEGER,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS requirements(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,content TEXT NOT NULL,category_id TEXT,share_consent INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'submitted',created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS requirements_owner_idx ON requirements(user_id);
 CREATE TABLE IF NOT EXISTS cases(id TEXT PRIMARY KEY,requirement_id TEXT REFERENCES requirements(id),title TEXT NOT NULL,summary TEXT NOT NULL,category_id TEXT,status TEXT NOT NULL DEFAULT 'draft',published_at INTEGER,created_at INTEGER NOT NULL);
@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,requirement_id TEXT NOT N
 CREATE TABLE IF NOT EXISTS audit_logs(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,resource_type TEXT NOT NULL,resource_id TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS case_events(id TEXT PRIMARY KEY,case_id TEXT NOT NULL REFERENCES cases(id),user_id TEXT,type TEXT NOT NULL,created_at INTEGER NOT NULL);
 `);
+const apiKeyColumns=new Set((sqlite.pragma('table_info(api_keys)') as {name:string}[]).map(col=>col.name));
+if(!apiKeyColumns.has('secret_value'))sqlite.exec('ALTER TABLE api_keys ADD COLUMN secret_value TEXT');
 // Idempotent additive migration for existing SQLite installations. Preserve all prior records.
 const extraColumns:Record<string,string>={
   industry:'TEXT',department:'TEXT',difficulty:'TEXT',
