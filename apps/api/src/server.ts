@@ -5,12 +5,13 @@ import fs from 'node:fs';import path from 'node:path';
 import bcrypt from 'bcryptjs';import sharp from 'sharp';import { eq,and,desc,isNull } from 'drizzle-orm';import { z } from 'zod';
 import {db} from './db.js';import {users,sessions,apiKeys,requirements,cases,casePrompts,media,requirementMedia,caseMedia,categories,reviews,auditLogs,caseEvents} from './schema.js';
 const app=new Koa();const r=new Router({prefix:'/api'});
+r.get('/health',ctx=>{ctx.body={ok:true};});
 const origin=process.env.APP_ORIGIN??'http://localhost:5173';app.use(cors({origin,credentials:true}));
 app.keys=[process.env.SESSION_SECRET??randomBytes(32).toString('hex')];
 app.use(async(ctx,next)=>{try{await next();if(ctx.status===404)ctx.body={error:'Not found'};}catch(e:any){ctx.status=e.status??500;ctx.body={error:ctx.status===500?'Internal server error':e.message};if(e instanceof z.ZodError){ctx.status=400;ctx.body={error:e.issues.map((issue:any)=>issue.message).join('; ')};}if(ctx.status===500)console.error(e);}});
 app.use(koaBody({multipart:true,formidable:{maxFileSize:(Number(process.env.MAX_IMAGE_MB)||10)*1024*1024,maxFiles:10},jsonLimit:'1mb'}));
 const now=()=>Math.floor(Date.now()/1000),id=()=>randomUUID(),hash=(s:string)=>createHash('sha256').update(s).digest('hex');
-const bad=(message:string,status=400):never=>{throw Object.assign(new Error(message),{status});};
+function bad(message:string,status=400):never{throw Object.assign(new Error(message),{status});}
 type Actor={id:string;role:string;email:string};const manager=(a:Actor)=>['admin','super_admin','reviewer'].includes(a.role);
 async function actor(ctx:Koa.Context):Promise<Actor>{let userId='';const authorization=ctx.get('authorization');if(authorization.startsWith('Bearer ')){const token=authorization.slice(7);const key=db.select().from(apiKeys).where(and(eq(apiKeys.hash,hash(token)),isNull(apiKeys.revokedAt))).get();if(key){userId=key.userId;db.update(apiKeys).set({lastUsedAt:now()}).where(eq(apiKeys.id,key.id)).run();}}else{const session=ctx.cookies.get('jack_session',{signed:true});if(session){const entry=db.select().from(sessions).where(eq(sessions.idHash,hash(session))).get();if(entry && entry.expiresAt>now())userId=entry.userId;}}const u=userId?db.select().from(users).where(eq(users.id,userId)).get():null;if(!u||u.status!=='active')bad('Unauthorized',401);return {id:u.id,role:u.role,email:u.email};}
 const admin=(a:Actor)=>{if(!manager(a))bad('Forbidden',403);};

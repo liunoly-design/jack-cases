@@ -1,0 +1,25 @@
+[Unit]
+Description=Jack Cases API
+After=network.target
+
+[Service]
+Type=simple
+User=jack-cases
+Group=jack-cases
+WorkingDirectory=/data/jack-cases/current
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=DATABASE_URL=/data/jack-cases/shared/jack-case.db
+Environment=STORAGE_DIR=/data/jack-cases/shared/uploads
+Environment=APP_ORIGIN=https://jack-cases.minapp.xin
+EnvironmentFile=/data/jack-cases/shared/.env
+ExecStart=/usr/bin/node /data/jack-cases/current/apps/api/dist/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/data/jack-cases/shared
+
+[Install]
+WantedBy=multi-user.target

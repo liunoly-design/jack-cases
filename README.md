@@ -18,6 +18,9 @@ npm run dev
 
 > `db.ts` 包含首版数据库首次启动建表逻辑。后续变更使用 `npm run db:generate` / `npm run db:migrate`；正式发布前整理初版 SQL 为 Drizzle 迁移基线。
 
+## 生产部署
+生产环境由 GitHub Actions 处理 `main` 推送：先安装依赖并构建，再调用 `hook.minapp.xin` 的 `jack-cases` hook。仓库需要设置 `DEPLOY_HOOK_TOKEN` Actions secret。服务器部署脚本只接受 `main` 可达的完整 commit SHA；应用发布目录为 `/data/jack-cases/releases/`，`/data/jack-cases/current` 指向当前版本，SQLite 与上传文件保存在 `/data/jack-cases/shared/`。systemd 运行 API，OpenResty 在 `jack-cases.minapp.xin` 提供 HTTPS、静态页面和 `/api` 代理。首次安装与故障排查见 [`ops/DEPLOYMENT.md`](ops/DEPLOYMENT.md)。
+
 ## 首位管理员
 为避免公开注册接口可获得管理员权限，默认注册者均为 student。先注册第一个账号，然后 **在受信任的服务器终端** 执行：
 ```bash
