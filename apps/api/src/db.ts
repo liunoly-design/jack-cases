@@ -23,4 +23,23 @@ CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,requirement_id TEXT NOT N
 CREATE TABLE IF NOT EXISTS audit_logs(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,resource_type TEXT NOT NULL,resource_id TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS case_events(id TEXT PRIMARY KEY,case_id TEXT NOT NULL REFERENCES cases(id),user_id TEXT,type TEXT NOT NULL,created_at INTEGER NOT NULL);
 `);
+// Idempotent additive migration for existing SQLite installations. Preserve all prior records.
+const extraColumns:Record<string,string>={
+  industry:'TEXT',department:'TEXT',difficulty:'TEXT',
+  implementation_status:"TEXT NOT NULL DEFAULT 'pending'",expected_outcome:'TEXT'
+};
+for(const table of ['requirements','cases']){
+  const existing=new Set((sqlite.pragma('table_info('+table+')') as {name:string}[]).map(col=>col.name));
+  for(const [name,definition] of Object.entries(extraColumns)){
+    if(table==='cases'&&name==='expected_outcome')continue;
+    if(!existing.has(name))sqlite.exec('ALTER TABLE '+table+' ADD COLUMN '+name+' '+definition);
+  }
+}
+sqlite.exec(`
+CREATE TABLE IF NOT EXISTS tags(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,slug TEXT NOT NULL UNIQUE,"group" TEXT NOT NULL DEFAULT 'general',color TEXT NOT NULL DEFAULT 'orange',active INTEGER NOT NULL DEFAULT 1,sort_order INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS requirement_tags(requirement_id TEXT NOT NULL REFERENCES requirements(id),tag_id TEXT NOT NULL REFERENCES tags(id),PRIMARY KEY(requirement_id,tag_id));
+CREATE TABLE IF NOT EXISTS case_tags(case_id TEXT NOT NULL REFERENCES cases(id),tag_id TEXT NOT NULL REFERENCES tags(id),PRIMARY KEY(case_id,tag_id));
+CREATE INDEX IF NOT EXISTS requirement_tags_tag_idx ON requirement_tags(tag_id);
+CREATE INDEX IF NOT EXISTS case_tags_tag_idx ON case_tags(tag_id);
+`);
 export const db=drizzle(sqlite,{schema});
