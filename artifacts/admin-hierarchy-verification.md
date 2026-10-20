@@ -29,3 +29,5 @@ Impeccable 检测只报告 pages.tsx 原有第 31/35 行的颜色/边框警告�
 ## 与 PR #10 的关系
 
 两者独立基于 main，可单独验证。PR #10 的用户管理函数与 App 路由为未修改上下文；本 PR 改动 AdminUsers 与调用参数。PR #10 的 server.ts 改动不涉及 users PATCH。建议先审阅合并权限修复，再合并 #10；若 #10 先合并，则将本分支更新到 main 并重跑三项检查，保留本 PR 的 users PATCH、AdminUsers 及 user 参数传递。未经授权不执行合并或部署。Issue 留待合并关闭。
+
+只读合并预检：`git merge-tree --write-tree HEAD upstream/pr10` 确认 server.ts 自动合并，pages.tsx 的 AdminCases / AdminUsers / NotFound / App 相邻压缩代码段出现文本冲突。因此上述顺序需要后合并的 PR 在 main 更新后人工消解冲突，并重跑验证；应同时保留 #10 的医疗文案与本 PR 的 AdminUsers 实现及 `<AdminUsers user={user}/>` 调用。该预检未修改工作区、未执行合并。
