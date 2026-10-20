@@ -10,6 +10,7 @@ import {DatabaseSync as Database} from 'node:sqlite';
 
 const root = path.resolve('.');
 const tsx = path.join(root, 'node_modules/tsx/dist/cli.mjs');
+const migrationCount = JSON.parse(fs.readFileSync('apps/api/drizzle/meta/_journal.json', 'utf8')).entries.length;
 const fixture = fs.readFileSync('tests/fixtures/legacy-bootstrap.sql', 'utf8');
 const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jack-migration-'));
 function run(args, env, cwd = root) {
@@ -46,7 +47,7 @@ test('fresh baseline, repeat migration, and root/workspace runtime config agree'
   assert.equal(migrate(env).status, 0);
   assert.equal(run(['src/migrate.ts'], env, path.join(root, 'apps/api')).status, 0);
   const db = new Database(env.DATABASE_URL); t.after(() => db.close());
-  assert.equal(db.prepare('SELECT count(*) n FROM __drizzle_migrations').get().n, 2);
+  assert.equal(db.prepare('SELECT count(*) n FROM __drizzle_migrations').get().n, migrationCount);
   assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name='tags'").get().n, 1);
   const code = `import {config} from '${root}/apps/api/src/config.ts'; console.log(JSON.stringify(config));`;
   const rootConfig = run(['-e', code], env), workspaceConfig = run(['-e', code], env, path.join(root, 'apps/api'));
@@ -70,6 +71,10 @@ test('populated legacy migration preserves records and PR #10 extensions; later 
     INSERT INTO requirement_files VALUES('r','f'); INSERT INTO case_files VALUES('c','f',1);
     UPDATE cases SET public_content='approved body',requirement_code='MED-REQ-0001';
     UPDATE requirements SET requirement_code='MED-REQ-0001';
+    ALTER TABLE requirements ADD COLUMN cover_media_id TEXT;
+    ALTER TABLE cases ADD COLUMN cover_media_id TEXT;
+    UPDATE requirements SET cover_media_id='m';
+    UPDATE cases SET cover_media_id='m';
     ALTER TABLE users ADD COLUMN future_marker TEXT;
     UPDATE users SET future_marker='keep me';
     CREATE TABLE future_records(id TEXT PRIMARY KEY,payload TEXT);
@@ -79,6 +84,8 @@ test('populated legacy migration preserves records and PR #10 extensions; later 
   const after = rows(db);
   assert.equal(db.prepare('SELECT payload FROM future_records').get().payload,'unknown data');
   assert.equal(db.prepare('SELECT future_marker FROM users').get().future_marker,'keep me');
+  assert.equal(after[1][0].cover_media_id, 'm');
+  assert.equal(db.prepare('SELECT cover_media_id FROM cases').get().cover_media_id, 'm');
   assert.equal(after[1][0].content, 'private body'); assert.equal(after[1][0].requirement_code, 'MED-REQ-0001');
   assert.equal(after[1][0].implementation_status, 'pending');
   assert.equal(db.prepare('SELECT * FROM files').all().length, 1);
@@ -88,11 +95,11 @@ test('populated legacy migration preserves records and PR #10 extensions; later 
   assert.equal(migrate(env).status, 0); assert.deepEqual(rows(db), after);
   const folder = path.join(dir, 'migrations'); fs.cpSync(path.join(root, 'apps/api/drizzle'), folder, { recursive: true });
   const journalFile = path.join(folder, 'meta/_journal.json'); const journal = JSON.parse(fs.readFileSync(journalFile));
-  journal.entries.push({ idx: 2, version: '6', when: journal.entries[1].when + 1, tag: '0002_future', breakpoints: true });
-  fs.writeFileSync(journalFile, JSON.stringify(journal)); fs.writeFileSync(path.join(folder, '0002_future.sql'), 'ALTER TABLE users ADD COLUMN future_note TEXT;');
+  journal.entries.push({ idx: journal.entries.length, version: '6', when: journal.entries.at(-1).when + 1, tag: '0003_future', breakpoints: true });
+  fs.writeFileSync(journalFile, JSON.stringify(journal)); fs.writeFileSync(path.join(folder, '0003_future.sql'), 'ALTER TABLE users ADD COLUMN future_note TEXT;');
   const code = `import Database from 'better-sqlite3'; import {migrateDatabase} from './apps/api/src/migrations.ts'; const db=new Database(process.env.DATABASE_URL); migrateDatabase(db,${JSON.stringify(folder)}); migrateDatabase(db,${JSON.stringify(folder)}); db.close();`;
   const later = run(['-e', code], env); assert.equal(later.status, 0, later.output);
-  assert.equal(db.prepare('SELECT count(*) n FROM __drizzle_migrations').get().n, 3);
+  assert.equal(db.prepare('SELECT count(*) n FROM __drizzle_migrations').get().n, migrationCount + 1);
   assert.ok(db.prepare('PRAGMA table_info(users)').all().some(c => c.name === 'future_note'));
   assert.deepEqual(rows(db).slice(1), after.slice(1));
 });
