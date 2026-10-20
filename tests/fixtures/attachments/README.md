@@ -1,0 +1,1 @@
+Synthetic, deterministic PDF / OOXML / ZIP fixtures for upload and byte-identical download regression. No macros, scripts, external links, credentials, business records or patient information. ZIP contains one README.txt; DOCX contains a single paragraph; XLSX contains one inline-string cell. These are test inputs, not document templates.

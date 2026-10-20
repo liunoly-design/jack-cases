@@ -92,7 +92,7 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 为避免影响其他服务，可在两个终端从仓库根运行（路径均用绝对路径）：
 
 ```bash
-PORT=3011 APP_ORIGIN=http://127.0.0.1:5181 DATABASE_URL="$PWD/storage/medical-demo.db" STORAGE_DIR="$PWD/storage/medical-files" SESSION_SECRET=local-demo-only npm run dev -w @jack-case/api
+PORT=3011 APP_ORIGIN=http://127.0.0.1:5181 DATABASE_URL="$PWD/storage/medical-demo.db" STORAGE_DIR="$PWD/storage/medical-files" SESSION_SECRET=local-demo-only-stable-secret-32chars npm run dev -w @jack-case/api
 WEB_PORT=5181 API_ORIGIN=http://127.0.0.1:3011 npm run dev -w @jack-case/web
 ```
 
@@ -104,10 +104,21 @@ WEB_PORT=5181 API_ORIGIN=http://127.0.0.1:3011 npm run dev -w @jack-case/web
 MEDICAL_DEMO_API_KEY='<本地账号自己的 Key>' npm run demo:medical -- '<已解压样稿目录>'
 ```
 
-脚本接受原始中文 JSON 文件名或安全解压后的 `03.json`/`04.json`，仅允许 localhost API。它转换对应 Markdown 正文与独立 Agent 文档，导入 `MED-REQ-0004` / `v3.0`，强制 `shareConsent=false`、难度未评估，不使用旧平台 UUID、分类/标签/图片 ID。已存在同业务编号则跳过，不覆盖记录；Markdown 副本保存在被 Git 忽略的 `storage/demo-materials/`。它不由启动或迁移自动调用，不会产生公开示例业务数据。
+脚本接受原始中文 JSON 文件名或安全解压后的 `03.json`/`04.json`，仅允许 localhost API。它转换对应 Markdown 正文与独立 Agent 文档，导入 `MED-REQ-0004` / `v3.0`，强制 `shareConsent=false`、难度未评估，不使用旧平台 UUID、分类/标签/图片 ID。已存在同业务编号时不覆盖正文或附件；若原记录仍私有且没有图片，仅补齐样稿的封面与需求卡，已有图片则跳过；Markdown 副本保存在被 Git 忽略的 `storage/demo-materials/`。它不由启动或迁移自动调用，不会产生公开示例业务数据。
 
 ## 本 PR 验证
 
 `npm run typecheck`、`npm run build`、`npm test`。集成测试启动独立临时 SQLite、上传目录与 HTTP 服务，验证旧库迁移/图片兼容、多文件关联、中文 Markdown 与元数据、权限越界、逐案例批准、下架撤销、私有授权防绕过、体积/数量与临时文件清理。测试结束关闭服务并删除临时数据，不接触运行中的开发/生产库。
 
 浏览器用 cua_repl 验证桌面 1280 px 与窄屏 390 px：手动提交、Markdown 预览/编辑、多个文件上传、需求关联、管理员补充资料/审核、案例资料独立维护、普通账号下载 AI 文档与单独 Agent 文件。
+
+
+## 封面卡片与图文详情
+
+- 每条需求/公开案例均有封面卡片；无图片时，用标题与编号生成默认封面。上传的封面完整展示，避免裁掉文字。私有需求有独立详情路径 `/requirements/:id`，权限仍由服务端校验。
+- 提交、作者编辑、需求管理可上传/移除/排序最多 10 张图片，并选择封面。`POST/PATCH /api/requirements` 接受有序 `mediaIds` 和可选 `coverMediaId`；封面必须是该需求关联的图片，不能关联其他用户的未知图片。
+- 通过 `0002_requirement_covers` 迁移幂等新增 `cover_media_id`，兼容已存在封面列的旧预览数据库并保留迁移账本，不改旧图片关系。历史记录默认用第一张图片，或默认封面。
+- 电商式详情采用主图与缩略图、图片放大/原尺寸阅读、信息与下载区、章节导航，以及下方图文详情/整图/附件材料。无图片、无附件和未评估信息均有明确空状态。
+- 案例列表和详情仅向普通用户返回明确关联并批准的图片。发布时私有封面未获批准，会回退到已批准的第一张图片；不会泄露原私有封面 ID。
+- `PUT /api/cases/:id/images` 管理员提交 `{mediaIds,coverMediaId}` 保存有序审核图集；图片须来自原需求、当前案例或当前管理员的上传。保存代表审核确认，只有案例发布期间可作为公开图片授权来源。案例下架后其他用户不能继续通过图片 URL 访问。
+- 本地参考导入会上传附件中的封面 PNG 与需求卡 PNG 到私有图片存储，不把这些图片提交到 Git；保持 MED-REQ-0004 的 shareConsent=false。

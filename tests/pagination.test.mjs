@@ -13,7 +13,7 @@ import Database from 'better-sqlite3';
 test('server pagination, whole-dataset filters, batching and scope isolation',async t=>{
  const folder=mkdtempSync(join(tmpdir(),'jack-pagination-'));
  const probe=createServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
- const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:join(folder,'test.db'),STORAGE_DIR:join(folder,'uploads'),SESSION_SECRET:'pagination-test-only-stable-isolated-test-key'},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:join(folder,'test.db'),STORAGE_DIR:join(folder,'uploads'),SESSION_SECRET:'pagination-test-only-stable-secret-32chars'},stdio:['ignore','pipe','pipe']});
  let logs='';child.stdout.on('data',x=>{logs+=x;});child.stderr.on('data',x=>{logs+=x;});
  let db;
  t.after(async()=>{if(child.exitCode===null&&child.signalCode===null){const exited=once(child,'exit');child.kill('SIGTERM');await exited;}db?.close();rmSync(folder,{recursive:true,force:true});});
@@ -73,7 +73,7 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
   assert.equal((await get('/cases?page=1&q=%25','alice')).total,0);
  });
  await t.test('count and pages use the same authorized scope',async()=>{
-  const bob=await get('/requirements?page=1&pageSize=100','bob');assert.equal(bob.total,1);assert.deepEqual(bob.items.map(x=>x.id),['bob-only']);
+  const bob=await get('/requirements?page=1&pageSize=100','bob');assert.equal(bob.total,1);assert.deepEqual(bob.items.map(x=>x.id),['bob-only']);assert.deepEqual(bob.items[0].reviews,[]);assert.deepEqual(bob.items[0].submissions,[]);
   assert.equal((await get('/requirements?page=2&pageSize=100','bob')).items.length,0);
   assert.equal((await get('/requirements?page=1&q=历史','bob')).total,0);
   assert.equal((await get('/requirements/facets','bob')).total,1);

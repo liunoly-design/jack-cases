@@ -2,7 +2,7 @@ import type Router from '@koa/router';
 import { and,asc,count,desc,eq,inArray,or,sql,type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db,sqlite } from './db.js';
-import { users,requirements,cases,media,categories,tags,requirementTags,caseTags,requirementMedia,files,requirementFiles,reviews,auditLogs } from './schema.js';
+import { users,requirements,cases,media,categories,tags,requirementTags,caseTags,caseMedia,requirementMedia,files,requirementFiles,reviews,auditLogs } from './schema.js';
 import { pagination,paginationShape,pageResponse } from './pagination.js';
 
 type Actor={id:string;role:string;email:string};
@@ -40,6 +40,12 @@ function pageTags(type:'case'|'requirement',ids:string[]){
   const relation=type==='case'?caseTags:requirementTags;const resource=type==='case'?caseTags.caseId:requirementTags.requirementId;
   const rows=db.select({resource,tag:tags}).from(relation).innerJoin(tags,eq(relation.tagId,tags.id)).where(inArray(resource,ids)).orderBy(tags.sortOrder,tags.name,tags.id).all();
   for(const row of rows){const list=grouped.get(row.resource)??[];list.push(row.tag);grouped.set(row.resource,list);}return grouped;
+}
+function pageCaseImages(ids:string[],a:Actor){
+  const grouped=new Map<string,{id:string;url:string}[]>();if(!ids.length)return grouped;
+  const canReview=['admin','super_admin','reviewer'].includes(a.role);
+  const rows=db.select({resource:caseMedia.caseId,id:media.id}).from(caseMedia).innerJoin(media,eq(caseMedia.mediaId,media.id)).where(and(inArray(caseMedia.caseId,ids),canReview?undefined:eq(media.status,'approved'))).orderBy(caseMedia.sortOrder,caseMedia.mediaId).all();
+  for(const row of rows){const list=grouped.get(row.resource)??[];list.push({id:row.id,url:`/api/media/${row.id}/content`});grouped.set(row.resource,list);}return grouped;
 }
 const fileInfo=(f:typeof files.$inferSelect)=>({id:f.id,name:f.name,purpose:f.purpose,mimeType:f.mimeType,size:f.size,url:`/api/files/${f.id}/download`});
 function pageFiles(ids:string[]){
@@ -80,7 +86,7 @@ export function registerLists(r:Router,actor:(ctx:any)=>Promise<Actor>,admin:(a:
   r.get('/cases',async ctx=>{
     const a=await actor(ctx),d=caseQuery.parse(ctx.query);if(d.scope==='all')admin(a);
     const where=and(d.scope==='published'?eq(cases.status,'published'):undefined,...commonWhere(cases,d)),p=pagination(d);
-    ctx.body=db.transaction(tx=>{const total=tx.select({total:count()}).from(cases).where(where).get()!.total;const rows=tx.select().from(cases).where(where).orderBy(...order(cases,d.sort)).limit(p.pageSize).offset(p.offset).all();const linked=pageTags('case',rows.map(x=>x.id));return pageResponse(rows.map(x=>({...x,tags:linked.get(x.id)??[]})),total,p);});
+    ctx.body=db.transaction(tx=>{const total=tx.select({total:count()}).from(cases).where(where).get()!.total;const rows=tx.select().from(cases).where(where).orderBy(...order(cases,d.sort)).limit(p.pageSize).offset(p.offset).all();const ids=rows.map(x=>x.id),linked=pageTags('case',ids),linkedImages=pageCaseImages(ids,a);return pageResponse(rows.map(x=>{const images=linkedImages.get(x.id)??[];return {...x,images,coverMediaId:images.some(im=>im.id===x.coverMediaId)?x.coverMediaId:images[0]?.id??null,tags:linked.get(x.id)??[]};}),total,p);});
   });
   r.get('/cases/facets',async ctx=>{const a=await actor(ctx);const d=z.object({scope:z.enum(['published','all']).default('published')}).strict().parse(ctx.query);if(d.scope==='all')admin(a);const access=d.scope==='published'?eq(cases.status,'published'):undefined;ctx.body={industries:industryOptions(cases,access),total:db.select({total:count()}).from(cases).where(access).get()!.total};});
   r.get('/files',async ctx=>{
