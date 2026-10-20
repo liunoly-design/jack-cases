@@ -1,0 +1,86 @@
+[
+  {
+    "page": "home",
+    "size": "desktop",
+    "before": [
+      1440,
+      1560
+    ],
+    "after": [
+      1440,
+      1560
+    ],
+    "changedChannelsAbove10": 0,
+    "meanAbsoluteError": 0
+  },
+  {
+    "page": "home",
+    "size": "mobile",
+    "before": [
+      390,
+      2530
+    ],
+    "after": [
+      390,
+      2530
+    ],
+    "changedChannelsAbove10": 0,
+    "meanAbsoluteError": 0
+  },
+  {
+    "page": "case",
+    "size": "desktop",
+    "before": [
+      1440,
+      1000
+    ],
+    "after": [
+      1440,
+      1000
+    ],
+    "changedChannelsAbove10": 0.0001886574074074074,
+    "meanAbsoluteError": 0.006951388888888889
+  },
+  {
+    "page": "case",
+    "size": "mobile",
+    "before": [
+      390,
+      844
+    ],
+    "after": [
+      390,
+      844
+    ],
+    "changedChannelsAbove10": 0.0007686231619880909,
+    "meanAbsoluteError": 0.02648357435087293
+  },
+  {
+    "page": "edit",
+    "size": "desktop",
+    "before": [
+      1440,
+      1892
+    ],
+    "after": [
+      1440,
+      1892
+    ],
+    "changedChannelsAbove10": 3.670425182053089e-7,
+    "meanAbsoluteError": 0.00018743637929684442
+  },
+  {
+    "page": "edit",
+    "size": "mobile",
+    "before": [
+      390,
+      2187
+    ],
+    "after": [
+      390,
+      2187
+    ],
+    "changedChannelsAbove10": 0,
+    "meanAbsoluteError": 0.00009692081022670872
+  }
+]
