@@ -16,7 +16,9 @@ npm run dev
 ```
 打开 http://localhost:5173 。生产环境分别运行 `npm run build` 与 `npm start`；生产环境应通过 nginx 或其他反向代理统一提供前端静态文件、HTTPS 和 `/api` 反代。生产前必须设置 SESSION_SECRET、固定的数据库与文件目录，配置备份。
 
-> `db.ts` 包含首版数据库首次启动建表逻辑。本次采用同文件内的幂等增量迁移，首次启动自动添加缺失列与文件关联表，并为旧需求生成业务编号；正文、UUID、案例、图片和原有关系保持不变。迁移前备份数据库与上传目录。正式使用 Drizzle 迁移命令前需先建立与现有自举结构一致的迁移基线。
+> 当前 schema 已建立 Drizzle 基线，启动与 `npm run db:migrate` 使用同一迁移 runner。支持存量自举库接纳及历史编号回填，保留正文、UUID、媒体和文件关联；升级前需备份。
+
+API 与 Drizzle 显式加载根 `.env`，相对数据库和上传路径统一以仓库根目录为基准。启动与 `npm run db:migrate` 共用兼容旧库的迁移基线；检测到旧 workspace 数据位置时拒绝静默切换。配置、后续迁移、WAL 一致性备份和显式恢复见 [ops/DATABASE.md](ops/DATABASE.md)。
 
 ## 生产部署
 生产环境由 GitHub Actions 处理 `main` 推送：先安装依赖并构建，再调用 `hook.minapp.xin` 的 `jack-cases` hook，由服务器排队部署并等待线上健康接口确认目标 SHA。仓库需要设置 `DEPLOY_HOOK_TOKEN` Actions secret。服务器部署脚本只接受 `main` 可达的完整 commit SHA；应用发布目录为 `/data/jack-cases/releases/`，`/data/jack-cases/current` 指向当前版本，SQLite 与上传文件保存在 `/data/jack-cases/shared/`。systemd 运行 API，OpenResty 在 `jack-cases.minapp.xin` 提供 HTTPS、静态页面和 `/api` 代理。首次安装与故障排查见 [`ops/DEPLOYMENT.md`](ops/DEPLOYMENT.md)。
@@ -59,7 +61,7 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 - 图片审核目前是选定已处理的图片，尚无区域打码图像编辑器。原图可能有敏感信息，**不可直接勾选公开原图**。
 - 管理端分类、用户操作提供基础能力；批量管理、完善的删除/修改审计和编辑图片尚未实现。
 - 当前上传文件按用户拥有权保管，未实现定期清理未关联附件。
-- 首版只面向单体部署；需补生产级速率限制、登录防暴力破解、CSRF 防护、文件恶意内容扫描与数据库备份。
+- 首版只面向单体部署；需补生产级速率限制、登录防暴力破解、CSRF 防护、文件恶意内容扫描；数据库备份脚本已提供，生产调度、加密异地存储与保留策略仍需配置。
 - 界面复用了 shadcn 风格的可维护本地组件，但尚未通过 shadcn CLI 安装完整组件库。
 
 
