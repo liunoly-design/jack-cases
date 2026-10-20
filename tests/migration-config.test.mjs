@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import Database from 'better-sqlite3';
+// Keep native better-sqlite3 in the API/migration/maintenance subprocesses.
+// Node's fixture driver avoids the legacy addon's Node 24 Linux cleanup crash.
+import {DatabaseSync as Database} from 'node:sqlite';
 
 const root = path.resolve('.');
 const tsx = path.join(root, 'node_modules/tsx/dist/cli.mjs');
@@ -91,7 +93,7 @@ test('populated legacy migration preserves records and PR #10 extensions; later 
   const code = `import Database from 'better-sqlite3'; import {migrateDatabase} from './apps/api/src/migrations.ts'; const db=new Database(process.env.DATABASE_URL); migrateDatabase(db,${JSON.stringify(folder)}); migrateDatabase(db,${JSON.stringify(folder)}); db.close();`;
   const later = run(['-e', code], env); assert.equal(later.status, 0, later.output);
   assert.equal(db.prepare('SELECT count(*) n FROM __drizzle_migrations').get().n, 3);
-  assert.ok(db.pragma('table_info(users)').some(c => c.name === 'future_note'));
+  assert.ok(db.prepare('PRAGMA table_info(users)').all().some(c => c.name === 'future_note'));
   assert.deepEqual(rows(db).slice(1), after.slice(1));
 });
 
@@ -127,8 +129,8 @@ test('explicit env load, relative root paths, legacy collision refusal and stabl
 
 test('WAL backup/restore keeps relations/files, rejects unauthorized targets and preserves target recovery backup', t => {
   const { dir, env } = setup(t); assert.equal(migrate(env).status, 0);
-  const db = new Database(env.DATABASE_URL); t.after(() => db.close());
-  db.pragma('journal_mode=WAL'); db.pragma('wal_autocheckpoint=0'); populate(db, env.STORAGE_DIR);
+  const db = new Database(env.DATABASE_URL); t.after(() => { if (db.isOpen) db.close(); });
+  db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;'); populate(db, env.STORAGE_DIR);
   db.exec(`INSERT INTO files VALUES('f','u','file.txt','File','brief','text/plain',7,1);
     INSERT INTO requirement_files VALUES('r','f'); INSERT INTO case_files VALUES('c','f',1);`);
   fs.writeFileSync(path.join(env.STORAGE_DIR,'file.txt'),'content');
