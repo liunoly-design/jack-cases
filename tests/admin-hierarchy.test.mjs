@@ -24,7 +24,7 @@ test('user management hierarchy', {timeout:30000}, async t=>{
   });
   let output='';child.stderr.on('data',c=>{output+=c;});
   let sql;
-  t.after(async()=>{const exited=once(child,'exit');child.kill();await exited;sql?.close();rmSync(dir,{recursive:true,force:true});});
+  t.after(async()=>{if(child.exitCode===null&&child.signalCode===null){const exited=once(child,'exit');child.kill();await exited;}sql?.close();rmSync(dir,{recursive:true,force:true});});
   await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error(output)));});
   sql=new Database(database);
   const roles=['student','reviewer','admin','super_admin'];
