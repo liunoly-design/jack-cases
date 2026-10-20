@@ -44,3 +44,5 @@ PATCH 保留未提供的 fileIds，显式提交时替换材料关联。作者可
 截图已全部更新为合并后的医疗平台。浏览器使用独立主机 `http://resubmission.localhost:5185`（本机无法绑定未配置的 127.0.0.5，改用独立 .localhost 主机隔离 Cookie），API 3015，隔离 SQLite `/tmp/jack-resubmission-ui/updated.db` 和目录 `/tmp/jack-resubmission-ui/updated-uploads`。未清理其他 session Cookie，也未停止其他 session 服务。
 
 桌面和 390px 窄屏验证：管理员退回 → 作者看到具体原因与 MED-REQ-0001/v1.0 → 编辑正文、预览 Markdown、选择新材料（保留原始资料和管理员资料）→ 保存仍已退回，版本为 v1.1 → 独立重提后仍 v1.1、三份资料均保留 → 管理员看到新版正文、材料和历史，逐文件只批准补充资料并填写脱敏公开正文 → 发布成功，历史、编号和版本保留且无重复审核按钮。
+
+窄屏重提截图补录使用同一隔离库中的第二条合成需求 MED-REQ-0002/v1.1（预置三份材料与退回记录，浏览器实际执行 resubmit），确认 390px 下正文/材料列表无横向溢出。第一条需求发布后的公开案例页也已验证：只列出勾选通过的“补充验收标准.md”，展示审核填写的脱敏公开正文，不列出另两份私有材料。见 [窄屏公开案例](mobile-public-case.png)。
