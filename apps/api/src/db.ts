@@ -1,10 +1,12 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
+import {encryptKey,decryptKey,keyStorageReady,keyHash} from './key-security.js';
 import fs from 'node:fs'; import path from 'node:path';
 const file=process.env.DATABASE_URL??'./storage/jack-case.db';
 fs.mkdirSync(path.dirname(file),{recursive:true});
 export const sqlite=new Database(file);
+sqlite.pragma('secure_delete = ON');
 sqlite.pragma('journal_mode = WAL');sqlite.pragma('foreign_keys = ON');
 // Bootstrap schema for first-run zero-command startup. Drizzle remains the only query layer.
 sqlite.exec(`
@@ -25,6 +27,22 @@ CREATE TABLE IF NOT EXISTS case_events(id TEXT PRIMARY KEY,case_id TEXT NOT NULL
 `);
 const apiKeyColumns=new Set((sqlite.pragma('table_info(api_keys)') as {name:string}[]).map(col=>col.name));
 if(!apiKeyColumns.has('secret_value'))sqlite.exec('ALTER TABLE api_keys ADD COLUMN secret_value TEXT');
+for(const [column,type] of Object.entries({secret_encrypted:'TEXT',scopes:'TEXT',expires_at:'INTEGER'})){
+  if(!apiKeyColumns.has(column))sqlite.exec('ALTER TABLE api_keys ADD COLUMN '+column+' '+type);
+}
+if(keyStorageReady){
+  let migrated=false;
+  // Validate every existing envelope before migrating anything. A wrong key never destroys data.
+  sqlite.transaction(()=>{
+    const rows=sqlite.prepare('SELECT id,hash,secret_value,secret_encrypted FROM api_keys').all() as {id:string;hash:string;secret_value:string|null;secret_encrypted:string|null}[];
+    for(const row of rows){
+      const secret=row.secret_encrypted?decryptKey(row.secret_encrypted,row.id):row.secret_value;
+      if(secret&&keyHash(secret)!==row.hash)throw Error('API Key storage integrity check failed');
+      if(row.secret_value){sqlite.prepare('UPDATE api_keys SET secret_encrypted=?,secret_value=NULL WHERE id=?').run(row.secret_encrypted??encryptKey(row.secret_value,row.id),row.id);migrated=true;}
+    }
+  })();
+  if(migrated)sqlite.pragma('wal_checkpoint(TRUNCATE)');
+}
 // Idempotent additive migration for existing SQLite installations. Preserve all prior records.
 const extraColumns:Record<string,string>={
   industry:'TEXT',department:'TEXT',difficulty:'TEXT',
