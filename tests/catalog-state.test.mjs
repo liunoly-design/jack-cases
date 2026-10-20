@@ -32,6 +32,7 @@ test('API bridge sends all filters and explicit pagination, excluding presentati
  const state=parseCatalogState('?q=行业关键词&industry=医药流通&categoryId=c&tagIds=a,b&view=list&page=3&pageSize=50&sort=oldest');
  const p=new URLSearchParams(catalogApiSearch(state));
  assert.equal(p.get('q'),'行业关键词');assert.equal(p.get('industry'),'医药流通');assert.equal(p.get('categoryId'),'c');assert.equal(p.get('tagIds'),'a,b');assert.equal(p.get('page'),'3');assert.equal(p.get('pageSize'),'50');assert.equal(p.get('sort'),'oldest');assert.equal(p.has('view'),false);
+ assert.equal(parseCatalogState('?q='+'a'.repeat(300)).q.length,200);
  const defaults=new URLSearchParams(catalogApiSearch(parseCatalogState('')));
  assert.equal(defaults.get('page'),'1');assert.equal(defaults.get('pageSize'),'20');assert.equal(defaults.get('sort'),'newest');
 });
