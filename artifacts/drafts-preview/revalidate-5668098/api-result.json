@@ -1,0 +1,14 @@
+{
+  "base": "5668098f98d8c1fbb2e1a083b443b173fef473f4",
+  "caseId": "45abdd42-09be-47f0-999c-584eee1b5969",
+  "title": "经过人工审核的公开需求",
+  "publicContentExactMatch": true,
+  "approvedFiles": [
+    "approved.md"
+  ],
+  "unapprovedFileStatus": 403,
+  "crossUserOriginalStatus": 404,
+  "publishedAuthorEditStatus": 409,
+  "code": "MED-REQ-0001",
+  "version": "v1.0"
+}
