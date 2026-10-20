@@ -2,9 +2,9 @@
 
 ## 稳定配置与首次升级
 
-`API_KEY_ENCRYPTION_KEY` 是独立的 32 字节 AES-256-GCM 主密钥，必须是 64 个十六进制字符。通过 Node `crypto.randomBytes(32).toString('hex')` 生成一次，保存在部署环境的 secret manager / 权限受限的环境文件。不要使用示例值、不要写 Git、日志或聊天，不能在每次启动时重新生成。它与 `SESSION_SECRET` 无关；后者也应稳定保存，以保留重启后的浏览器会话。实现使用 [Node 标准 crypto](https://nodejs.org/api/crypto.html)，每条记录随机 12 字节 IV、16 字节认证标签，AAD 绑定版本和记录 ID；认证仍通过 SHA-256 哈希查询。
+`API_KEY_ENCRYPTION_KEY` 是独立的 32 字节 AES-256-GCM 主密钥，必须是 64 个十六进制字符。通过 Node `crypto.randomBytes(32).toString('hex')` 生成一次，保存在部署环境的 secret manager / 权限受限的环境文件。不要使用示例值、不要写 Git、日志或聊天，不能在每次启动时重新生成。它与 `SESSION_SECRET` 无关；后者显式配置时至少 32 字符，生产必须稳定配置，开发省略时由统一配置模块持久化在数据库旁。两者都应单独备份。实现使用 [Node 标准 crypto](https://nodejs.org/api/crypto.html)，每条记录随机 12 字节 IV、16 字节认证标签，AAD 绑定版本和记录 ID；认证仍通过 SHA-256 哈希查询。
 
-升级前停止旧版本写入、做 SQLite 一致性备份（SQLite backup API 或停机复制数据库及所需 WAL），将旧备份作为含明文敏感数据保护。配置主密钥后启动新版本：添加 nullable `secret_encrypted/scopes/expires_at` 列，事务校验所有已有密文与哈希，把旧 `secret_value` 加密并置空。开启 `secure_delete`，迁移提交后执行 WAL TRUNCATE checkpoint；请单实例维护窗口迁移，避免旧进程继续写回明文或其他连接阻止 checkpoint。启动后确认 `secret_value` 非空计数为 0，安全处理历史 WAL、快照与含明文备份；文件系统快照、SSD 历史块无法靠应用保证物理擦除。清理或重建受控备份后再恢复服务。
+升级前停止旧版本写入、做 SQLite 一致性备份（SQLite backup API 或停机复制数据库及所需 WAL），将旧备份作为含明文敏感数据保护。配置主密钥后启动新版本：添加 nullable `secret_encrypted/scopes/expires_at` 列，先通过正式 Drizzle `0002_fair_orphan` 加法迁移添加上述字段，再事务校验所有已有密文与哈希，把旧 `secret_value` 加密并置空。开启 `secure_delete`，迁移提交后执行 WAL TRUNCATE checkpoint；请单实例维护窗口迁移，避免旧进程继续写回明文或其他连接阻止 checkpoint。启动后确认 `secret_value` 非空计数为 0，安全处理历史 WAL、快照与含明文备份；文件系统快照、SSD 历史块无法靠应用保证物理擦除。清理或重建受控备份后再恢复服务。
 
 仅有哈希的历史 Key 无法还原，仍能用于原业务 API，需登录后轮换才能复制。迁移不改变旧 Key 哈希、权限或期限，旧 Key `scopes=NULL/expires_at=NULL` 表示继承账号原业务权限且无自动期限。界面标记待轮换并不再建议将其复制给 Agent。旧 Key 同样不能读取/创建/轮换/撤销其他密钥，密钥管理统一要求 cookie 会话。不要声称加密迁移自动消除了旧 Key 的过宽授权风险。
 

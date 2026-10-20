@@ -2,34 +2,16 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
 import {encryptKey,decryptKey,keyStorageReady,keyHash} from './key-security.js';
-import fs from 'node:fs'; import path from 'node:path';
-const file=process.env.DATABASE_URL??'./storage/jack-case.db';
-fs.mkdirSync(path.dirname(file),{recursive:true});
-export const sqlite=new Database(file);
+import fs from 'node:fs';
+import path from 'node:path';
+import { config } from './config.js';
+import { migrateDatabase } from './migrations.js';
+fs.mkdirSync(path.dirname(config.database), { recursive: true });
+export const sqlite = new Database(config.database);
 sqlite.pragma('secure_delete = ON');
-sqlite.pragma('journal_mode = WAL');sqlite.pragma('foreign_keys = ON');
-// Bootstrap schema for first-run zero-command startup. Drizzle remains the only query layer.
-sqlite.exec(`
-CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'student',status TEXT NOT NULL DEFAULT 'active',created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS sessions(id_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS api_keys(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),name TEXT NOT NULL,prefix TEXT NOT NULL,hash TEXT NOT NULL UNIQUE,secret_value TEXT,revoked_at INTEGER,last_used_at INTEGER,created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS requirements(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,content TEXT NOT NULL,category_id TEXT,share_consent INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'submitted',created_at INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS requirements_owner_idx ON requirements(user_id);
-CREATE TABLE IF NOT EXISTS cases(id TEXT PRIMARY KEY,requirement_id TEXT REFERENCES requirements(id),title TEXT NOT NULL,summary TEXT NOT NULL,category_id TEXT,status TEXT NOT NULL DEFAULT 'draft',published_at INTEGER,created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS case_prompts(id TEXT PRIMARY KEY,case_id TEXT NOT NULL REFERENCES cases(id),type TEXT NOT NULL,content TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1);
-CREATE TABLE IF NOT EXISTS media(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),storage_key TEXT NOT NULL,mime_type TEXT NOT NULL,size INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'private',created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS requirement_media(requirement_id TEXT NOT NULL REFERENCES requirements(id),media_id TEXT NOT NULL REFERENCES media(id),sort_order INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(requirement_id,media_id));
-CREATE TABLE IF NOT EXISTS case_media(case_id TEXT NOT NULL REFERENCES cases(id),media_id TEXT NOT NULL REFERENCES media(id),sort_order INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(case_id,media_id));
-CREATE TABLE IF NOT EXISTS categories(id TEXT PRIMARY KEY,parent_id TEXT,name TEXT NOT NULL,slug TEXT NOT NULL UNIQUE,sort_order INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY,requirement_id TEXT NOT NULL REFERENCES requirements(id),reviewer_id TEXT NOT NULL REFERENCES users(id),decision TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS audit_logs(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,resource_type TEXT NOT NULL,resource_id TEXT NOT NULL,created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS case_events(id TEXT PRIMARY KEY,case_id TEXT NOT NULL REFERENCES cases(id),user_id TEXT,type TEXT NOT NULL,created_at INTEGER NOT NULL);
-`);
-const apiKeyColumns=new Set((sqlite.pragma('table_info(api_keys)') as {name:string}[]).map(col=>col.name));
-if(!apiKeyColumns.has('secret_value'))sqlite.exec('ALTER TABLE api_keys ADD COLUMN secret_value TEXT');
-for(const [column,type] of Object.entries({secret_encrypted:'TEXT',scopes:'TEXT',expires_at:'INTEGER'})){
-  if(!apiKeyColumns.has(column))sqlite.exec('ALTER TABLE api_keys ADD COLUMN '+column+' '+type);
-}
+sqlite.pragma('journal_mode = WAL');
+sqlite.pragma('foreign_keys = ON');
+migrateDatabase(sqlite);
 if(keyStorageReady){
   let migrated=false;
   // Validate every existing envelope before migrating anything. A wrong key never destroys data.
@@ -43,44 +25,5 @@ if(keyStorageReady){
   })();
   if(migrated)sqlite.pragma('wal_checkpoint(TRUNCATE)');
 }
-// Idempotent additive migration for existing SQLite installations. Preserve all prior records.
-const extraColumns:Record<string,string>={
-  industry:'TEXT',department:'TEXT',difficulty:'TEXT',
-  implementation_status:"TEXT NOT NULL DEFAULT 'pending'",expected_outcome:'TEXT'
-};
-for(const table of ['requirements','cases']){
-  const existing=new Set((sqlite.pragma('table_info('+table+')') as {name:string}[]).map(col=>col.name));
-  for(const [name,definition] of Object.entries(extraColumns)){
-    if(table==='cases'&&name==='expected_outcome')continue;
-    if(!existing.has(name))sqlite.exec('ALTER TABLE '+table+' ADD COLUMN '+name+' '+definition);
-  }
-}
-sqlite.exec(`
-CREATE TABLE IF NOT EXISTS tags(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,slug TEXT NOT NULL UNIQUE,"group" TEXT NOT NULL DEFAULT 'general',color TEXT NOT NULL DEFAULT 'orange',active INTEGER NOT NULL DEFAULT 1,sort_order INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS requirement_tags(requirement_id TEXT NOT NULL REFERENCES requirements(id),tag_id TEXT NOT NULL REFERENCES tags(id),PRIMARY KEY(requirement_id,tag_id));
-CREATE TABLE IF NOT EXISTS case_tags(case_id TEXT NOT NULL REFERENCES cases(id),tag_id TEXT NOT NULL REFERENCES tags(id),PRIMARY KEY(case_id,tag_id));
-CREATE INDEX IF NOT EXISTS requirement_tags_tag_idx ON requirement_tags(tag_id);
-CREATE INDEX IF NOT EXISTS case_tags_tag_idx ON case_tags(tag_id);
-`);
-export const db=drizzle(sqlite,{schema});
 
-// Additive medical-platform migration: legacy content/media stay untouched.
-for(const table of ['requirements','cases']){
-  const existing=new Set((sqlite.pragma('table_info('+table+')') as {name:string}[]).map(c=>c.name));
-  for(const [name,definition] of Object.entries({requirement_code:'TEXT',content_version:"TEXT NOT NULL DEFAULT 'v1.0'",...(table==='cases'?{public_content:'TEXT'}:{})})){
-    if(!existing.has(name))sqlite.exec('ALTER TABLE '+table+' ADD COLUMN '+name+' '+definition);
-  }
-}
-sqlite.exec(`
-CREATE UNIQUE INDEX IF NOT EXISTS requirements_code_unique ON requirements(requirement_code);
-CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),storage_key TEXT NOT NULL,name TEXT NOT NULL,purpose TEXT NOT NULL,mime_type TEXT NOT NULL,size INTEGER NOT NULL,created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS requirement_files(requirement_id TEXT NOT NULL REFERENCES requirements(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(requirement_id,file_id));
-CREATE TABLE IF NOT EXISTS case_files(case_id TEXT NOT NULL REFERENCES cases(id),file_id TEXT NOT NULL REFERENCES files(id),approved INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(case_id,file_id));
-`);
-// Stable codes for historical rows; never rewrite legacy body or UUID.
-const backfill=sqlite.transaction(()=>{
-  let next=Number((sqlite.prepare("SELECT MAX(CAST(SUBSTR(requirement_code,9) AS INTEGER)) AS n FROM requirements WHERE requirement_code GLOB 'MED-REQ-[0-9]*'").get() as {n:number}).n||0)+1;
-  for(const row of sqlite.prepare('SELECT id FROM requirements WHERE requirement_code IS NULL ORDER BY created_at,id').all() as {id:string}[]){
-    sqlite.prepare('UPDATE requirements SET requirement_code=? WHERE id=?').run('MED-REQ-'+String(next++).padStart(4,'0'),row.id);
-  }
-});backfill();
+export const db = drizzle(sqlite, { schema });

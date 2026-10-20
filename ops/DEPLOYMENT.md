@@ -31,3 +31,5 @@ curl -fsS https://jack-cases.minapp.xin/api/health
 ```
 
 Never place the webhook token or `SESSION_SECRET` in Git. Keep `/data/jack-cases/shared` when pruning old release directories.
+
+Database paths, legacy adoption, migration review, maintenance backup and explicit restore: [DATABASE.md](DATABASE.md). These scripts are not a configured production backup schedule.

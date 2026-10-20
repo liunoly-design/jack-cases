@@ -1,3 +1,4 @@
+import './config.js';
 import {createCipheriv,createDecipheriv,createHash,randomBytes} from 'node:crypto';
 
 // Independent of SESSION_SECRET: operators must persist this key across restarts/backups.

@@ -17,7 +17,7 @@ async function harness(t){
  const database=path.join(dir,'test.db'),master=randomBytes(32).toString('hex');let child,sql;
  async function stop(){if(child&&child.exitCode===null){const end=once(child,'exit');child.kill();await end;}child=null;sql?.close();sql=null;}
  async function start(overrides={}){
-  let output='';child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,HOST:'127.0.0.1',PORT:String(port),DATABASE_URL:database,STORAGE_DIR:path.join(dir,'uploads'),SESSION_SECRET:'isolated-test-session-secret',API_KEY_ENCRYPTION_KEY:master,TRUSTED_PROXY_IPS:'',...overrides},stdio:['ignore','pipe','pipe']});
+  let output='';child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,HOST:'127.0.0.1',PORT:String(port),DATABASE_URL:database,STORAGE_DIR:path.join(dir,'uploads'),SESSION_SECRET:'isolated-test-session-secret-at-least-32-chars',API_KEY_ENCRYPTION_KEY:master,TRUSTED_PROXY_IPS:'',...overrides},stdio:['ignore','pipe','pipe']});
   child.stderr.on('data',c=>{output+=c;});
   await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error(output)));});
   sql=new Database(overrides.DATABASE_URL??database);return sql;
