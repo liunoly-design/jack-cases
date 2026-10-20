@@ -13,7 +13,7 @@ import Database from 'better-sqlite3';
 test('server pagination, whole-dataset filters, batching and scope isolation',async t=>{
  const folder=mkdtempSync(join(tmpdir(),'jack-pagination-'));
  const probe=createServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
- const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:join(folder,'test.db'),STORAGE_DIR:join(folder,'uploads'),SESSION_SECRET:'pagination-test-only'},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:join(folder,'test.db'),STORAGE_DIR:join(folder,'uploads'),SESSION_SECRET:'pagination-test-only-stable-isolated-test-key'},stdio:['ignore','pipe','pipe']});
  let logs='';child.stdout.on('data',x=>{logs+=x;});child.stderr.on('data',x=>{logs+=x;});
  let db;
  t.after(async()=>{if(child.exitCode===null&&child.signalCode===null){const exited=once(child,'exit');child.kill('SIGTERM');await exited;}db?.close();rmSync(folder,{recursive:true,force:true});});
@@ -43,6 +43,8 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
    db.prepare('INSERT INTO case_tags(case_id,tag_id) VALUES(?,?)').run('c'+i,'rare-tag');
   }
   db.prepare('INSERT INTO files(id,owner_id,storage_key,name,purpose,mime_type,size,created_at) VALUES(?,?,?,?,?,?,?,?)').run('bob-file','bob','private.md','机密资料.md','other','text/markdown',100,300);
+  db.prepare('INSERT INTO reviews(id,requirement_id,reviewer_id,decision,notes,created_at) VALUES(?,?,?,?,?,?)').run('old-review','r0','admin','reject','请补充历史需求的验收标准',1);
+  db.prepare('INSERT INTO audit_logs(id,actor_id,action,resource_type,resource_id,created_at) VALUES(?,?,?,?,?,?)').run('old-submission','alice','resubmit','requirement','r0',2);
   insertReq.run('bob-only','bob','机密需求','不可泄露的内容',300,null,'保密行业','easy','pending',0);
   insertCase.run('draft','秘密草稿','未公开的案例','draft',400,null,'秘密行业','easy','pending');
   // Equal timestamps exercise the stable ID tiebreaker across multiple pages.
@@ -55,7 +57,7 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
    const first=await get(url+joiner+'page=1&pageSize=100');assert.equal(first.total,total);assert.equal(first.pageSize,100);assert.equal(first.page,1);
    if(total){const last=await get(url+joiner+'page=3&pageSize=100');assert.equal(last.items.length,total-200);assert.equal(last.total,total);if(lastId)assert.equal(last.items.at(-1).id,lastId);}
   }
-  const mine=await get('/requirements?page=11&pageSize=20','alice');assert.equal(mine.total,205);assert.equal(mine.items.length,5);assert.equal(mine.items.at(-1).id,'r0');assert.equal(mine.items.at(-1).images[0].id,'m0');assert.equal(mine.items.at(-1).tags[0].id,'rare-tag');assert.equal(mine.items.at(-1).files[0].id,'f0');
+  const mine=await get('/requirements?page=11&pageSize=20','alice');assert.equal(mine.total,205);assert.equal(mine.items.length,5);assert.equal(mine.items.at(-1).id,'r0');assert.equal(mine.items.at(-1).images[0].id,'m0');assert.equal(mine.items.at(-1).tags[0].id,'rare-tag');assert.equal(mine.items.at(-1).files[0].id,'f0');assert.equal(mine.items.at(-1).reviews[0].notes,'请补充历史需求的验收标准');assert.equal(mine.items.at(-1).submissions[0].id,'old-submission');
   const defaults=await get('/cases?pageSize=1');assert.equal(defaults.page,1);assert.equal(defaults.items.length,1);assert.equal((await get('/cases?page=1')).pageSize,20);
  });
  await t.test('all filters run before pagination, include deep subcategories and industry search',async()=>{

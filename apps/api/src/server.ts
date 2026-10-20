@@ -3,7 +3,7 @@ import {config} from './config.js';
 import Koa from 'koa'; import Router from '@koa/router'; import cors from '@koa/cors'; import { koaBody } from 'koa-body';
 import { randomBytes,randomUUID,createHash } from 'node:crypto';
 import os from 'node:os';import fs from 'node:fs';import path from 'node:path';
-import bcrypt from 'bcryptjs';import sharp from 'sharp';import { eq,and,desc,isNull,inArray,count,sql } from 'drizzle-orm';import { z } from 'zod';
+import bcrypt from 'bcryptjs';import sharp from 'sharp';import { eq,and,desc,isNull,inArray,sql,count } from 'drizzle-orm';import { z } from 'zod';
 import {db} from './db.js';import {users,sessions,apiKeys,requirements,cases,casePrompts,media,requirementMedia,caseMedia,categories,reviews,auditLogs,caseEvents,tags,requirementTags,caseTags,files,requirementFiles,caseFiles} from './schema.js';
 import {registerLists} from './lists.js';
 const app=new Koa();app.proxy=true;const r=new Router({prefix:'/api'});
