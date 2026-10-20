@@ -9,7 +9,8 @@ const read=(names)=>{const found=names.map(n=>path.join(source,n)).find(p=>fs.ex
 const record=read(['平台需求记录.json','04.json']),detail=read(['需求详细文档.json','03.json']);
 const request=async(route,body,method=body?'POST':'GET')=>{const r=await fetch(origin+route,{method,headers:{Authorization:'Bearer '+key,...(body instanceof FormData?{}:{'Content-Type':'application/json'})},body:body?(body instanceof FormData?body:JSON.stringify(body)):undefined});const data=await r.json();if(!r.ok)throw new Error(data.error);return data;};
 const code=record.requirementCode;if(!/^MED-REQ-[0-9]{4,10}$/.test(code))throw new Error('Invalid business code');
-const existing=(await request('/requirements')).find(r=>r.requirementCode===code);
+let existing;
+for(let page=1;;page++){const result=await request('/requirements?page='+page+'&pageSize=100');existing=result.items.find(r=>r.requirementCode===code);if(existing||page*result.pageSize>=result.total)break;}
 const imagePaths=[['MED-REQ-0004_cover.png','01.png'],['MED-REQ-0004_card.png','11.png']].map(names=>names.map(n=>path.join(source,n)).find(p=>fs.existsSync(p))).filter(Boolean);
 const importImages=async()=>{const ids=[];for(const location of imagePaths){const form=new FormData();form.append('file',new Blob([fs.readFileSync(location)]),path.basename(location));ids.push((await request('/media',form)).id);}return ids;};
 if(existing){

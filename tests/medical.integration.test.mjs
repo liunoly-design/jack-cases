@@ -5,7 +5,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import Database from 'better-sqlite3';
+// Fixtures use Node's SQLite driver; the API child still exercises better-sqlite3.
+// This avoids the legacy addon's cleanup-hook crash in the Node 24 Linux test runner.
+import {DatabaseSync as Database} from 'node:sqlite';
 import bcrypt from 'bcryptjs';
 import sharp from 'sharp';
 
@@ -54,7 +56,7 @@ test('medical requirement materials and legacy compatibility',async t=>{
   assert.equal((await call('/requirements/'+requirement,author.apiKey,{coverMediaId:foreign.id},'PATCH')).status,400);
   assert.equal((await call('/requirements/'+requirement,author.apiKey,{mediaIds:[firstImage.id,firstImage.id]},'PATCH')).status,400);
   response=await call('/requirements/'+requirement+'/review',admin.apiKey,{decision:'approve',summary:'公开图文需求说明',requirementPrompt:'公开需求正文。',approvedMediaIds:[firstImage.id]});assert.equal(response.status,200);const published=(await response.json()).caseId;
-  detail=await(await call('/cases/'+published,other.apiKey)).json();assert.equal(detail.coverMediaId,firstImage.id);assert.deepEqual(detail.images.map(im=>im.id),[firstImage.id]);const listed=(await(await call('/cases',other.apiKey)).json()).find(c=>c.id===published);assert.equal(listed.coverMediaId,firstImage.id);assert.deepEqual(listed.images.map(im=>im.id),[firstImage.id]);assert.equal((await call(privateCover.url.replace('/api',''),other.apiKey)).status,403);
+  detail=await(await call('/cases/'+published,other.apiKey)).json();assert.equal(detail.coverMediaId,firstImage.id);assert.deepEqual(detail.images.map(im=>im.id),[firstImage.id]);const listed=(await(await call('/cases?page=1&pageSize=100',other.apiKey)).json()).items.find(c=>c.id===published);assert.equal(listed.coverMediaId,firstImage.id);assert.deepEqual(listed.images.map(im=>im.id),[firstImage.id]);assert.equal((await call(privateCover.url.replace('/api',''),other.apiKey)).status,403);
   assert.equal((await call('/cases/'+published+'/images',other.apiKey,{mediaIds:[privateCover.id]},'PUT')).status,403);
   assert.equal((await call('/cases/'+published+'/images',admin.apiKey,{mediaIds:[foreign.id]},'PUT')).status,400);
   response=await call('/cases/'+published+'/images',admin.apiKey,{mediaIds:[privateCover.id,firstImage.id],coverMediaId:privateCover.id},'PUT');assert.equal(response.status,200);detail=await(await call('/cases/'+published,other.apiKey)).json();assert.equal(detail.coverMediaId,privateCover.id);assert.deepEqual(detail.images.map(im=>im.id),[privateCover.id,firstImage.id]);assert.equal((await call(privateCover.url.replace('/api',''),other.apiKey)).status,200);
