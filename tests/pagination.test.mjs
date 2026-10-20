@@ -13,7 +13,7 @@ import Database from 'better-sqlite3';
 test('server pagination, whole-dataset filters, batching and scope isolation',async t=>{
  const folder=mkdtempSync(join(tmpdir(),'jack-pagination-'));
  const probe=createServer();probe.listen(0,'127.0.0.1');await once(probe,'listening');const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
- const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:join(folder,'test.db'),STORAGE_DIR:join(folder,'uploads'),SESSION_SECRET:'pagination-test-only'},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:join(folder,'test.db'),STORAGE_DIR:join(folder,'uploads'),SESSION_SECRET:'pagination-test-only-stable-isolated-test-key'},stdio:['ignore','pipe','pipe']});
  let logs='';child.stdout.on('data',x=>{logs+=x;});child.stderr.on('data',x=>{logs+=x;});
  let db;
  t.after(async()=>{if(child.exitCode===null&&child.signalCode===null){const exited=once(child,'exit');child.kill('SIGTERM');await exited;}db?.close();rmSync(folder,{recursive:true,force:true});});
