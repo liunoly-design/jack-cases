@@ -2,7 +2,7 @@
 
 关联 Issue：https://github.com/tans/jack-cases/issues/28
 
-本项从 upstream/main 独立实现，最终适配 main 239c588（已包含 #10、#14、#17、#16、#32、#23、#20、#35、#22）。不修改 API、认证、MD/files 或权限行为。
+本项从 upstream/main 独立实现，最终适配 main a1d856e（已包含 #10、#14、#17、#16、#32、#23、#20、#35、#22、#27、#24、#38）。不修改 API、认证、MD/files 或权限行为。
 
 ## 浏览器验收
 
@@ -27,7 +27,7 @@ Impeccable detector 的 tab 下划线命中是既有选中态样式；目录灰�
 
 ## 关联 PR
 
-#10 已合并，无额外合并顺序要求。#20 在等待 CI 时合并，已在本项解决 Catalog/Materials 冲突并保留 usePage、分页计数与材料库分页。#24/#27 当前未合并，本项不依赖其功能或提交，独立 main 可验证；这些 PR 同样编辑 pages.tsx 的目录/详情/认证附近，后合入者应在最新 main 解决文本重叠，保留本项 aria-pressed、Tabs 与字段标签。未将这些未合并 PR 集成进本项。
+#10 已合并，无额外合并顺序要求。#20 在等待 CI 时合并，已在本项解决 Catalog/Materials 冲突并保留 usePage、分页计数与材料库分页。#24/#27 已合并；本项保留 useCatalogState、useCatalogResults、returnTo 安全返回和 Agent 密钥权限判断，未恢复旧 Catalog/Auth/Submit。
 
 适配 #23 后发现 native-dependencies 与 resubmission 测试仍使用少于 32 字符的固定 session secret，无法通过新配置的启动校验。本 PR 只延长这隔离夹具值，保留安全配置与全部业务/native 断言。
 
@@ -38,3 +38,7 @@ Impeccable detector 的 tab 下划线命中是既有选中态样式；目录灰�
 2026-10-21：再次同步 main 239c588，保留已集成的三处夹具修复及分页/审核历史改动；本 PR 对 main 的测试差异只剩新增的页签语义回归。
 
 适配 #22：保留封面、图片排序、图文详情、私有编辑与原生候选提示词 details。详情章节保持链接，候选提示词为原生披露控件，无 tab 角色（mobile-case-disclosure.png）。上传焦点修复移至新的 ImageEditor（requirement-images.tsx）。desktop.png、keyboard-upload.png、mobile-form.png、mobile-case-disclosure.png 为该轮最新截图；其余截图记录此前相同导航/认证交互。新编辑器 Enter 实际上传后默认封面选中，390px 无溢出。typecheck/build/64 项测试通过。
+
+再次同步 main a1d856e（含 #27/#24/#38）：URL 筛选、排序、每页条数经详情往返完整恢复，列表 pressed 与 URL 一致；390px 菜单 Escape 恢复 SUMMARY 焦点且无横溢，见 url-return-desktop.png / url-return-mobile.png。页码与安全返回边界沿用主分支 catalog-state 测试全部断言。
+
+该轮最终 typecheck/build/77 项测试全部通过；测试环境隔离补丁来自 main #38，本项未重复修改它。
