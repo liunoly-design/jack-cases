@@ -16,16 +16,16 @@ test('medical requirement materials and legacy compatibility',async t=>{
  db.exec(`CREATE TABLE users(id TEXT PRIMARY KEY,email TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'student',status TEXT NOT NULL DEFAULT 'active',created_at INTEGER NOT NULL);
  CREATE TABLE requirements(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),title TEXT NOT NULL,content TEXT NOT NULL,category_id TEXT,share_consent INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'submitted',created_at INTEGER NOT NULL);
  CREATE TABLE media(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),storage_key TEXT NOT NULL,mime_type TEXT NOT NULL,size INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'private',created_at INTEGER NOT NULL);
- CREATE TABLE requirement_media(requirement_id TEXT NOT NULL,media_id TEXT NOT NULL,sort_order INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(requirement_id,media_id));`);
+ CREATE TABLE requirement_media(requirement_id TEXT NOT NULL REFERENCES requirements(id),media_id TEXT NOT NULL REFERENCES media(id),sort_order INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(requirement_id,media_id));`);
  db.prepare('INSERT INTO users VALUES (?,?,?,?,?,?)').run('legacy','legacy@example.test',bcrypt.hashSync('test-password',4),'student','active',1);
  db.prepare('INSERT INTO requirements VALUES (?,?,?,?,?,?,?,?)').run('legacy-req','legacy','旧需求','旧正文原样保留\n业务背景：医院服务',null,0,'submitted',1);
  db.prepare('INSERT INTO media VALUES (?,?,?,?,?,?,?)').run('legacy-img','legacy','legacy.webp','image/webp',3,'private',1);
  db.prepare('INSERT INTO requirement_media VALUES (?,?,?)').run('legacy-req','legacy-img',0);
  const listener=net.createServer();await new Promise(r=>listener.listen(0,'127.0.0.1',r));const port=listener.address().port;await new Promise(r=>listener.close(r));
  const uploadTemp=path.join(temp,'tmp');fs.mkdirSync(uploadTemp);
- const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),TMPDIR:uploadTemp,DATABASE_URL:dbPath,STORAGE_DIR:path.join(temp,'files'),SESSION_SECRET:'isolated-integration-test-secret'},stdio:['ignore','pipe','pipe']});let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b);
- t.after(async()=>{child.kill('SIGTERM');await new Promise(r=>child.once('exit',r));db.close();fs.rmSync(temp,{recursive:true,force:true});});
- const base=`http://127.0.0.1:${port}/api`;for(let i=0;i<100;i++){try{if((await fetch(base+'/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,50));if(i===99)assert.fail(logs);}
+ const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),TMPDIR:uploadTemp,DATABASE_URL:dbPath,STORAGE_DIR:path.join(temp,'files'),SESSION_SECRET:'isolated-integration-test-secret-2026'},stdio:['ignore','pipe','pipe']});let logs='';child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b);
+ t.after(async()=>{if(child.exitCode===null&&child.signalCode===null){child.kill('SIGTERM');await new Promise(r=>child.once('exit',r));}db.close();fs.rmSync(temp,{recursive:true,force:true});});
+ const base=`http://127.0.0.1:${port}/api`;for(let i=0;i<100;i++){if(child.exitCode!==null)assert.fail(logs);try{if((await fetch(base+'/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,50));if(i===99)assert.fail(logs);}
  const call=(url,key,body,method=body?'POST':'GET')=>fetch(base+url,{method,headers:{...(key?{Authorization:'Bearer '+key}:{}),...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body?(body instanceof FormData?body:JSON.stringify(body)):undefined});
  const register=async email=>{const r=await call('/auth/register',null,{email,password:'test-password'});assert.equal(r.status,201);return r.json();};
  const author=await register('author@example.test'),other=await register('other@example.test'),admin=await register('admin@example.test');db.prepare('UPDATE users SET role=? WHERE id=?').run('admin',admin.user.id);

@@ -50,7 +50,7 @@ test('built API restarts with persisted SQLite and decodable resized/private ima
   await new Promise(resolve => listener.close(resolve));
   const base = `http://127.0.0.1:${port}/api`;
   const env = { ...process.env, PORT: String(port), DATABASE_URL: path.join(temp, 'api.db'),
-    STORAGE_DIR: path.join(temp, 'files'), TMPDIR: temp, SESSION_SECRET: 'native-regression-only' };
+    STORAGE_DIR: path.join(temp, 'files'), TMPDIR: temp, SESSION_SECRET: 'native-regression-only-stable-key-2026' };
   let child, exited, logs = '';
   const stop = async () => {
     if (!child) return;

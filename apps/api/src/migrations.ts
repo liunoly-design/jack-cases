@@ -1,0 +1,105 @@
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
+import { fileURLToPath } from 'node:url';
+import { legacyCodePlan } from './legacy-codes.js';
+
+export const migrationsFolder = fileURLToPath(new URL('../drizzle/', import.meta.url));
+const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+type Column = { name: string; type: string; notnull: number; dflt_value: string | null; pk: number };
+// Only these fields were added by the pre-migration bootstrap. All other missing
+// columns indicate an unknown/incomplete schema and require operator inspection.
+const legacyAdditions: Record<string, string[]> = {
+  api_keys: ['secret_value'],
+  requirements: ['industry', 'department', 'difficulty', 'implementation_status', 'expected_outcome', 'requirement_code', 'content_version'],
+  cases: ['industry', 'department', 'difficulty', 'implementation_status', 'requirement_code', 'content_version', 'public_content'],
+};
+
+export function migrateDatabase(sqlite: Database.Database, folder = migrationsFolder) {
+  const migrations = readMigrationFiles({ migrationsFolder: folder });
+  const baseline = migrations[0];
+  if (!baseline) throw new Error('Missing migration baseline');
+  // This project supports additive migrations only. Table-copy migrations generated
+  // by Drizzle must be rewritten and reviewed to preserve unknown future columns.
+  for (const migration of migrations) for (const statement of migration.sql) {
+    if (/\bDROP\s+(TABLE|COLUMN)|\bDELETE\s+FROM|\bRENAME\s+TO|\bTRUNCATE\b/i.test(statement)) {
+      throw new Error('Destructive migration refused; use reviewed additive SQL preserving unknown tables/columns.');
+    }
+  }
+  sqlite.transaction(() => {
+    sqlite.exec('CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)');
+    const ledger = sqlite.prepare('SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at').all() as {hash:string;created_at:number}[];
+    if (ledger.length) {
+      for (const row of ledger) if (!migrations.some(m => m.hash === row.hash && m.folderMillis === row.created_at)) {
+        throw new Error('Unknown migration history; use the matching application release. No schema changes applied.');
+      }
+      if (ledger.some((row, i) => row.hash !== migrations[i]?.hash)) throw new Error('Migration history is not a contiguous prefix');
+      return;
+    }
+    const expected = new Database(':memory:');
+    try {
+      for (const sql of baseline.sql) expected.exec(sql);
+      const tables = expected.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as {name:string}[];
+      for (const { name } of tables) {
+        const existing = sqlite.pragma(`table_info(${quote(name)})`) as Column[];
+        if (!existing.length) continue;
+        const wanted = expected.pragma(`table_info(${quote(name)})`) as Column[];
+        for (const col of wanted) {
+          const found = existing.find(c => c.name === col.name);
+          if (!found) {
+            if (!legacyAdditions[name]?.includes(col.name)) throw new Error(`Unsupported legacy schema: missing ${name}.${col.name}. Restore/inspect before migrating.`);
+            const definition = `${col.type}${col.notnull ? ' NOT NULL' : ''}${col.dflt_value !== null ? ' DEFAULT ' + col.dflt_value : ''}`;
+            sqlite.exec(`ALTER TABLE ${quote(name)} ADD COLUMN ${quote(col.name)} ${definition}`);
+          } else if (found.type.toUpperCase() !== col.type.toUpperCase() || found.pk !== col.pk || (!col.pk && col.notnull && !found.notnull)) {
+            throw new Error(`Unsupported legacy schema: incompatible ${name}.${col.name}`);
+          }
+        }
+        const wantedFks = expected.pragma(`foreign_key_list(${quote(name)})`) as {from:string;table:string;to:string}[];
+        const foundFks = sqlite.pragma(`foreign_key_list(${quote(name)})`) as typeof wantedFks;
+        for (const fk of wantedFks) if (!foundFks.some(f => f.from === fk.from && f.table === fk.table && f.to === fk.to)) throw new Error(`Unsupported legacy foreign key: ${name}.${fk.from}`);
+      }
+      // Create tables first so code conflicts can report row IDs before creating
+      // the unique code index. Any conflict rolls back the entire adoption.
+      for (const sql of baseline.sql) if (!/CREATE (?:UNIQUE )?INDEX /.test(sql)) sqlite.exec(sql.replace(/CREATE TABLE /g, 'CREATE TABLE IF NOT EXISTS '));
+      legacyCodePlan(sqlite);
+      for (const sql of baseline.sql) if (/CREATE (?:UNIQUE )?INDEX /.test(sql)) sqlite.exec(sql.replace(/CREATE (UNIQUE )?INDEX /g, 'CREATE $1INDEX IF NOT EXISTS '));
+      if ((sqlite.pragma('foreign_key_check') as unknown[]).length) throw new Error('Legacy database has broken foreign keys; repair from backup before migrating.');
+      sqlite.prepare('INSERT INTO __drizzle_migrations(hash,created_at) VALUES (?,?)').run(baseline.hash, baseline.folderMillis);
+    } finally { expected.close(); }
+  }).immediate();
+  const dataMigration = migrations[1];
+  if (dataMigration && !sqlite.prepare('SELECT 1 FROM __drizzle_migrations WHERE hash=?').get(dataMigration.hash)) {
+    let plan: Map<string, string>;
+    sqlite.function('legacy_requirement_code', (id: unknown) => {
+      const code = plan?.get(String(id));
+      if (!code) throw new Error(`Missing preflight code for ${String(id)}`);
+      return code;
+    });
+    // This data migration needs a JS Markdown preflight. Keep the plan, SQL and
+    // standard Drizzle ledger entry in the same immediate write transaction.
+    sqlite.transaction(() => {
+      plan = legacyCodePlan(sqlite);
+      for (const statement of dataMigration.sql) sqlite.exec(statement);
+      sqlite.prepare('INSERT INTO __drizzle_migrations(hash,created_at) VALUES (?,?)').run(dataMigration.hash, dataMigration.folderMillis);
+    }).immediate();
+  }
+  // PR #22 previews added cover columns before the migration ledger existed.
+  // Adopt those nullable TEXT columns without dropping them or rerunning ALTER.
+  const coverMigration = migrations.find(m => m.folderMillis === 1792513174719);
+  if (coverMigration && !sqlite.prepare('SELECT 1 FROM __drizzle_migrations WHERE hash=?').get(coverMigration.hash)) {
+    sqlite.transaction(() => {
+      for (const statement of coverMigration.sql) {
+        const match = statement.trim().match(/^ALTER TABLE `(cases|requirements)` ADD `cover_media_id` text;$/);
+        if (!match) throw new Error('Unexpected cover migration statement');
+        const columns = sqlite.pragma(`table_info(${quote(match[1])})`) as Column[];
+        const existing = columns.find(c => c.name === 'cover_media_id');
+        if (existing) {
+          if (existing.type.toUpperCase() !== 'TEXT' || existing.notnull || existing.pk) throw new Error(`Unsupported legacy cover column: ${match[1]}`);
+        } else sqlite.exec(statement);
+      }
+      sqlite.prepare('INSERT INTO __drizzle_migrations(hash,created_at) VALUES (?,?)').run(coverMigration.hash, coverMigration.folderMillis);
+    }).immediate();
+  }
+  migrate(drizzle(sqlite), { migrationsFolder: folder });
+}

@@ -16,7 +16,9 @@ npm run dev
 ```
 打开 http://localhost:5173 。生产环境分别运行 `npm run build` 与 `npm start`；生产环境应通过 nginx 或其他反向代理统一提供前端静态文件、HTTPS 和 `/api` 反代。生产前必须设置 SESSION_SECRET、固定的数据库与文件目录，配置备份。
 
-> `db.ts` 包含首版数据库首次启动建表逻辑。本次采用同文件内的幂等增量迁移，首次启动自动添加缺失列与文件关联表，并为旧需求生成业务编号；正文、UUID、案例、图片和原有关系保持不变。迁移前备份数据库与上传目录。正式使用 Drizzle 迁移命令前需先建立与现有自举结构一致的迁移基线。
+> 当前 schema 已建立 Drizzle 基线，启动与 `npm run db:migrate` 使用同一迁移 runner。支持存量自举库接纳及历史编号回填，保留正文、UUID、媒体和文件关联；升级前需备份。
+
+API 与 Drizzle 显式加载根 `.env`，相对数据库和上传路径统一以仓库根目录为基准。启动与 `npm run db:migrate` 共用兼容旧库的迁移基线；检测到旧 workspace 数据位置时拒绝静默切换。配置、后续迁移、WAL 一致性备份和显式恢复见 [ops/DATABASE.md](ops/DATABASE.md)。
 
 ## 生产部署
 生产环境由 GitHub Actions 处理 `main` 推送：先安装依赖并构建，再调用 `hook.minapp.xin` 的 `jack-cases` hook，由服务器排队部署并等待线上健康接口确认目标 SHA。仓库需要设置 `DEPLOY_HOOK_TOKEN` Actions secret。服务器部署脚本只接受 `main` 可达的完整 commit SHA；应用发布目录为 `/data/jack-cases/releases/`，`/data/jack-cases/current` 指向当前版本，SQLite 与上传文件保存在 `/data/jack-cases/shared/`。systemd 运行 API，OpenResty 在 `jack-cases.minapp.xin` 提供 HTTPS、静态页面和 `/api` 代理。首次安装与故障排查见 [`ops/DEPLOYMENT.md`](ops/DEPLOYMENT.md)。
@@ -59,7 +61,7 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 - 图片审核目前是选定已处理的图片，尚无区域打码图像编辑器。原图可能有敏感信息，**不可直接勾选公开原图**。
 - 管理端分类、用户操作提供基础能力；批量管理、完善的删除/修改审计和编辑图片尚未实现。
 - 当前上传文件按用户拥有权保管，未实现定期清理未关联附件。
-- 首版只面向单体部署；需补生产级速率限制、登录防暴力破解、CSRF 防护、文件恶意内容扫描与数据库备份。
+- 首版只面向单体部署；需补生产级速率限制、登录防暴力破解、CSRF 防护、文件恶意内容扫描；数据库备份脚本已提供，生产调度、加密异地存储与保留策略仍需配置。
 - 界面复用了 shadcn 风格的可维护本地组件，但尚未通过 shadcn CLI 安装完整组件库。
 
 
@@ -90,7 +92,7 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 为避免影响其他服务，可在两个终端从仓库根运行（路径均用绝对路径）：
 
 ```bash
-PORT=3011 APP_ORIGIN=http://127.0.0.1:5181 DATABASE_URL="$PWD/storage/medical-demo.db" STORAGE_DIR="$PWD/storage/medical-files" SESSION_SECRET=local-demo-only npm run dev -w @jack-case/api
+PORT=3011 APP_ORIGIN=http://127.0.0.1:5181 DATABASE_URL="$PWD/storage/medical-demo.db" STORAGE_DIR="$PWD/storage/medical-files" SESSION_SECRET=local-demo-only-stable-secret-32chars npm run dev -w @jack-case/api
 WEB_PORT=5181 API_ORIGIN=http://127.0.0.1:3011 npm run dev -w @jack-case/web
 ```
 
@@ -115,7 +117,7 @@ MEDICAL_DEMO_API_KEY='<本地账号自己的 Key>' npm run demo:medical -- '<已
 
 - 每条需求/公开案例均有封面卡片；无图片时，用标题与编号生成默认封面。上传的封面完整展示，避免裁掉文字。私有需求有独立详情路径 `/requirements/:id`，权限仍由服务端校验。
 - 提交、作者编辑、需求管理可上传/移除/排序最多 10 张图片，并选择封面。`POST/PATCH /api/requirements` 接受有序 `mediaIds` 和可选 `coverMediaId`；封面必须是该需求关联的图片，不能关联其他用户的未知图片。
-- 数据库幂等新增 `cover_media_id`，不改旧图片关系。历史记录默认用第一张图片，或默认封面。
+- 通过 `0002_requirement_covers` 迁移幂等新增 `cover_media_id`，兼容已存在封面列的旧预览数据库并保留迁移账本，不改旧图片关系。历史记录默认用第一张图片，或默认封面。
 - 电商式详情采用主图与缩略图、图片放大/原尺寸阅读、信息与下载区、章节导航，以及下方图文详情/整图/附件材料。无图片、无附件和未评估信息均有明确空状态。
 - 案例列表和详情仅向普通用户返回明确关联并批准的图片。发布时私有封面未获批准，会回退到已批准的第一张图片；不会泄露原私有封面 ID。
 - `PUT /api/cases/:id/images` 管理员提交 `{mediaIds,coverMediaId}` 保存有序审核图集；图片须来自原需求、当前案例或当前管理员的上传。保存代表审核确认，只有案例发布期间可作为公开图片授权来源。案例下架后其他用户不能继续通过图片 URL 访问。

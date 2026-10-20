@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792510898166,
+      "tag": "0000_clear_micromax",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792510898167,
+      "tag": "0001_backfill_requirement_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792513174719,
+      "tag": "0002_requirement_covers",
+      "breakpoints": true
+    }
+  ]
+}

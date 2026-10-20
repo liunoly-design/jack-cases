@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import {signingSecret} from './runtime.js';
+import {config} from './config.js';
 import Koa from 'koa'; import Router from '@koa/router'; import cors from '@koa/cors'; import { koaBody } from 'koa-body';
 import { randomBytes,randomUUID,createHash } from 'node:crypto';
 import os from 'node:os';import fs from 'node:fs';import path from 'node:path';
@@ -8,7 +9,7 @@ const app=new Koa();app.proxy=true;const r=new Router({prefix:'/api'});
 const deployedCommitFile=process.env.DEPLOYED_COMMIT_FILE;
 r.get('/health',ctx=>{let commit:string|null=null;if(deployedCommitFile){try{commit=fs.readFileSync(deployedCommitFile,'utf8').trim()||null;}catch{}}ctx.body={ok:true,commit};});
 const origin=process.env.APP_ORIGIN??'http://localhost:5173';app.use(cors({origin,credentials:true}));
-app.keys=[process.env.SESSION_SECRET??randomBytes(32).toString('hex')];
+app.keys=[signingSecret];
 app.use(async(ctx,next)=>{try{await next();if(ctx.status===404)ctx.body={error:'Not found'};}catch(e:any){ctx.status=e.status??e.httpCode??500;ctx.body={error:ctx.status===500?'Internal server error':e.message};if(e instanceof z.ZodError){ctx.status=400;ctx.body={error:e.issues.map((issue:any)=>issue.message).join('; ')};}if(ctx.status===500)console.error(e);}});
 // Each request owns its temporary upload directory, including parser failures.
 app.use(async(ctx,next)=>{const limit=ctx.path==='/api/media'?(Number(process.env.MAX_IMAGE_MB)||10)*1024*1024:20*1024*1024;const temp=fs.mkdtempSync(path.join(os.tmpdir(),'medical-upload-'));try{await koaBody({multipart:true,formidable:{uploadDir:temp,maxFileSize:limit,maxTotalFileSize:limit,maxFiles:1},jsonLimit:'1mb'})(ctx,async()=>{const uploads=Object.values((ctx.request as any).files??{}).flat() as {size:number}[];if(uploads.length>1||uploads.reduce((n,f)=>n+f.size,0)>limit)bad('Upload limit exceeded',413);await next();});}finally{fs.rmSync(temp,{recursive:true,force:true});}});
@@ -147,7 +148,7 @@ r.post('/requirements/:id/resubmit',async ctx=>{
   audit(a,'resubmit','requirement',v.id);
  });ctx.body={ok:true,status:'submitted'};
 });
-const storage=path.resolve(process.env.STORAGE_DIR??'./storage/uploads');fs.mkdirSync(storage,{recursive:true});
+const storage=config.uploads;fs.mkdirSync(storage,{recursive:true});
 r.post('/media',async ctx=>{const a=await actor(ctx);const raw=(ctx.request as any).files?.file;const file=Array.isArray(raw)?raw[0]:raw;if(!file)bad('file field is required');const bytes=fs.readFileSync(file.filepath);if(bytes.length>(Number(process.env.MAX_IMAGE_MB)||10)*1024*1024)bad('Image size limit exceeded',413);const meta=await sharp(bytes).metadata().catch(()=>null);if(!meta||!['jpeg','png','webp'].includes(meta.format??'')||!meta.width||!meta.height||meta.width*meta.height>35000000)bad('Invalid image format or dimensions');const output=await sharp(bytes).rotate().resize({width:2400,withoutEnlargement:true}).webp({quality:82}).toBuffer();const mediaId=id(),filename=`${mediaId}.webp`;fs.writeFileSync(path.join(storage,filename),output,{flag:'wx'});db.insert(media).values({id:mediaId,ownerId:a.id,storageKey:filename,mimeType:'image/webp',size:output.length,createdAt:now()}).run();ctx.status=201;ctx.body={id:mediaId,url:`/api/media/${mediaId}/content`};});
 r.get('/media',async ctx=>{const a=await actor(ctx);admin(a);ctx.body=db.select({id:media.id,ownerId:media.ownerId,status:media.status,size:media.size,createdAt:media.createdAt}).from(media).orderBy(desc(media.createdAt)).limit(200).all();});
 r.get('/media/:id/content',async ctx=>{const a=await actor(ctx);const m=db.select().from(media).where(eq(media.id,ctx.params.id)).get();if(!m)bad('Not found',404);const ownedRequirement=db.select().from(requirementMedia).innerJoin(requirements,eq(requirementMedia.requirementId,requirements.id)).where(and(eq(requirementMedia.mediaId,m.id),eq(requirements.userId,a.id))).get();const authorized=m.ownerId===a.id||manager(a)||ownedRequirement||db.select().from(caseMedia).innerJoin(cases,eq(caseMedia.caseId,cases.id)).where(and(eq(caseMedia.mediaId,m.id),eq(cases.status,'published'))).get();if(!authorized || (m.ownerId!==a.id && !manager(a) && !ownedRequirement && m.status!=='approved'))bad('Forbidden',403);ctx.type=m.mimeType;ctx.set('Cache-Control','private, no-store');ctx.body=fs.createReadStream(path.join(storage,path.basename(m.storageKey)));});
