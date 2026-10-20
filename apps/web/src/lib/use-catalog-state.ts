@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useLayoutEffect,useState} from 'react';
 import {useLocation,useSearchParams} from 'react-router-dom';
 import {catalogSearch,parseCatalogState,updateCatalogState,type CatalogOptions,type CatalogState} from './catalog-state';
 export function useCatalogState(options:CatalogOptions){
@@ -8,10 +8,14 @@ export function useCatalogState(options:CatalogOptions){
  const state=parseCatalogState(location.search,defaultView,options);
  const canonical=catalogSearch(state);
  useEffect(()=>{if(location.search!==canonical)setSearch(canonical,{replace:true});},[location.search,canonical,setSearch]);
- const update=(patch:Partial<CatalogState>,replace=false)=>setSearch(catalogSearch(updateCatalogState(state,patch)),{replace});
+ const update=(patch:Partial<CatalogState>,replace=false)=>{
+  const pending=draft.key===location.key&&draft.value!==state.q?{q:draft.value}:{};
+  setSearch(catalogSearch(updateCatalogState(state,{...pending,...patch})),{replace});
+ };
  // Associate draft text with the current history entry: POP navigation cancels stale input.
  const[draft,setDraft]=useState({key:location.key,value:state.q});
  const filter=draft.key===location.key?draft.value:state.q;
+ useLayoutEffect(()=>setDraft({key:location.key,value:state.q}),[location.key,state.q]);
  useEffect(()=>{
   if(draft.key!==location.key||draft.value===state.q)return;
   const timer=setTimeout(()=>update({q:draft.value}),350);
