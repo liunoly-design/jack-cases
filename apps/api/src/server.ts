@@ -68,7 +68,30 @@ r.post('/requirements/:id/review',async ctx=>{const a=await actor(ctx);admin(a);
 r.post('/cases/:id/status',async ctx=>{const a=await actor(ctx);admin(a);const c=db.select().from(cases).where(eq(cases.id,ctx.params.id)).get();if(!c)bad('Not found',404);const d=z.object({status:z.enum(['published','draft','archived'])}).parse(ctx.request.body);db.update(cases).set({status:d.status,publishedAt:d.status==='published'?now():c.publishedAt}).where(eq(cases.id,c.id)).run();audit(a,'status:'+d.status,'case',c.id);ctx.body={ok:true};});
 r.post('/cases/:id/copy-events',async ctx=>{const a=await actor(ctx);const c=caseDetail(ctx.params.id,a);const d=z.object({type:z.enum(['copy_requirement','copy_build'])}).parse(ctx.request.body);db.insert(caseEvents).values({id:id(),caseId:c.id,userId:a.id,type:d.type,createdAt:now()}).run();ctx.body={ok:true};});
 r.get('/users',async ctx=>{const a=await actor(ctx);admin(a);ctx.body=db.select().from(users).all().map(safeUser);});
-r.patch('/users/:id',async ctx=>{const a=await actor(ctx);if(!['admin','super_admin'].includes(a.role))bad('Forbidden',403);const d=z.object({status:z.enum(['active','disabled']).optional(),role:z.enum(['student','reviewer','admin']).optional()}).parse(ctx.request.body);if(a.id===ctx.params.id&&(d.status==='disabled'||d.role&&d.role!==a.role))bad('Cannot remove own access');if(d.role&&a.role!=='super_admin')bad('Only super_admin may change roles',403);db.update(users).set(d).where(eq(users.id,ctx.params.id)).run();audit(a,'update','user',ctx.params.id);ctx.body={ok:true};});
+r.patch('/users/:id',async ctx=>{
+  const a=await actor(ctx);
+  const d=z.object({status:z.enum(['active','disabled']).optional(),role:z.enum(['student','reviewer','admin']).optional()}).parse(ctx.request.body);
+  db.transaction(tx=>{
+    // Re-read after taking the write lock: concurrent demotion/disable must revoke authority.
+    const current=tx.select().from(users).where(eq(users.id,a.id)).get();
+    if(!current||current.status!=='active')bad('Unauthorized',401);
+    if(!['admin','super_admin'].includes(current.role))bad('Forbidden',403);
+    const target=tx.select().from(users).where(eq(users.id,ctx.params.id)).get();
+    if(!target)bad('User not found',404);
+    const removesAccess=d.status==='disabled'||!!(d.role&&d.role!==target.role);
+    if(target.role==='super_admin'&&target.status==='active'&&removesAccess){
+      const activeSupers=tx.select({id:users.id}).from(users).where(and(eq(users.role,'super_admin'),eq(users.status,'active'))).all();
+      if(activeSupers.length<=1)bad('Cannot remove the last active super_admin',409);
+    }
+    if(current.id===target.id&&removesAccess)bad('Cannot remove own access');
+    if(current.role==='admin'&&!['student','reviewer'].includes(target.role))bad('Admins may only manage lower roles',403);
+    if(d.role&&current.role!=='super_admin')bad('Only super_admin may change roles',403);
+    if(!d.status&&!d.role)bad('No user changes provided');
+    tx.update(users).set(d).where(eq(users.id,target.id)).run();
+    tx.insert(auditLogs).values({id:id(),actorId:current.id,action:'update',resourceType:'user',resourceId:target.id,createdAt:now()}).run();
+  },{behavior:'immediate'});
+  ctx.body={ok:true};
+});
 r.get('/stats',async ctx=>{const a=await actor(ctx);admin(a);ctx.body={users:db.select().from(users).all().length,requirements:db.select().from(requirements).all().length,cases:db.select().from(cases).all().length,pending:db.select().from(requirements).where(eq(requirements.status,'submitted')).all().length};});
 r.get('/audit-logs',async ctx=>{const a=await actor(ctx);admin(a);ctx.body=db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(200).all();});
 app.use(r.routes()).use(r.allowedMethods());
