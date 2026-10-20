@@ -73,7 +73,7 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
   assert.equal((await get('/cases?page=1&q=%25','alice')).total,0);
  });
  await t.test('count and pages use the same authorized scope',async()=>{
-  const bob=await get('/requirements?page=1&pageSize=100','bob');assert.equal(bob.total,1);assert.deepEqual(bob.items.map(x=>x.id),['bob-only']);
+  const bob=await get('/requirements?page=1&pageSize=100','bob');assert.equal(bob.total,1);assert.deepEqual(bob.items.map(x=>x.id),['bob-only']);assert.deepEqual(bob.items[0].reviews,[]);assert.deepEqual(bob.items[0].submissions,[]);
   assert.equal((await get('/requirements?page=2&pageSize=100','bob')).items.length,0);
   assert.equal((await get('/requirements?page=1&q=历史','bob')).total,0);
   assert.equal((await get('/requirements/facets','bob')).total,1);
