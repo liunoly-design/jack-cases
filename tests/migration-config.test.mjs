@@ -9,8 +9,8 @@ import { spawnSync } from 'node:child_process';
 import {DatabaseSync as Database} from 'node:sqlite';
 
 const root = path.resolve('.');
-const migrationCount=JSON.parse(fs.readFileSync('apps/api/drizzle/meta/_journal.json','utf8')).entries.length;
 const tsx = path.join(root, 'node_modules/tsx/dist/cli.mjs');
+const migrationCount = JSON.parse(fs.readFileSync('apps/api/drizzle/meta/_journal.json', 'utf8')).entries.length;
 const fixture = fs.readFileSync('tests/fixtures/legacy-bootstrap.sql', 'utf8');
 const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jack-migration-'));
 function run(args, env, cwd = root) {
@@ -71,6 +71,10 @@ test('populated legacy migration preserves records and PR #10 extensions; later 
     INSERT INTO requirement_files VALUES('r','f'); INSERT INTO case_files VALUES('c','f',1);
     UPDATE cases SET public_content='approved body',requirement_code='MED-REQ-0001';
     UPDATE requirements SET requirement_code='MED-REQ-0001';
+    ALTER TABLE requirements ADD COLUMN cover_media_id TEXT;
+    ALTER TABLE cases ADD COLUMN cover_media_id TEXT;
+    UPDATE requirements SET cover_media_id='m';
+    UPDATE cases SET cover_media_id='m';
     ALTER TABLE users ADD COLUMN future_marker TEXT;
     UPDATE users SET future_marker='keep me';
     CREATE TABLE future_records(id TEXT PRIMARY KEY,payload TEXT);
@@ -80,6 +84,8 @@ test('populated legacy migration preserves records and PR #10 extensions; later 
   const after = rows(db);
   assert.equal(db.prepare('SELECT payload FROM future_records').get().payload,'unknown data');
   assert.equal(db.prepare('SELECT future_marker FROM users').get().future_marker,'keep me');
+  assert.equal(after[1][0].cover_media_id, 'm');
+  assert.equal(db.prepare('SELECT cover_media_id FROM cases').get().cover_media_id, 'm');
   assert.equal(after[1][0].content, 'private body'); assert.equal(after[1][0].requirement_code, 'MED-REQ-0001');
   assert.equal(after[1][0].implementation_status, 'pending');
   assert.equal(db.prepare('SELECT * FROM files').all().length, 1);

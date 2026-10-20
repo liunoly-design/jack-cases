@@ -84,5 +84,22 @@ export function migrateDatabase(sqlite: Database.Database, folder = migrationsFo
       sqlite.prepare('INSERT INTO __drizzle_migrations(hash,created_at) VALUES (?,?)').run(dataMigration.hash, dataMigration.folderMillis);
     }).immediate();
   }
+  // PR #22 previews added cover columns before the migration ledger existed.
+  // Adopt those nullable TEXT columns without dropping them or rerunning ALTER.
+  const coverMigration = migrations.find(m => m.folderMillis === 1792513174719);
+  if (coverMigration && !sqlite.prepare('SELECT 1 FROM __drizzle_migrations WHERE hash=?').get(coverMigration.hash)) {
+    sqlite.transaction(() => {
+      for (const statement of coverMigration.sql) {
+        const match = statement.trim().match(/^ALTER TABLE `(cases|requirements)` ADD `cover_media_id` text;$/);
+        if (!match) throw new Error('Unexpected cover migration statement');
+        const columns = sqlite.pragma(`table_info(${quote(match[1])})`) as Column[];
+        const existing = columns.find(c => c.name === 'cover_media_id');
+        if (existing) {
+          if (existing.type.toUpperCase() !== 'TEXT' || existing.notnull || existing.pk) throw new Error(`Unsupported legacy cover column: ${match[1]}`);
+        } else sqlite.exec(statement);
+      }
+      sqlite.prepare('INSERT INTO __drizzle_migrations(hash,created_at) VALUES (?,?)').run(coverMigration.hash, coverMigration.folderMillis);
+    }).immediate();
+  }
   migrate(drizzle(sqlite), { migrationsFolder: folder });
 }
