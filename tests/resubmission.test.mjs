@@ -13,7 +13,7 @@ test('returned requirement: reasons, draft save, explicit resubmit, review and a
  const dir=mkdtempSync(path.join(tmpdir(),'jack-resubmit-'));
  const socket=createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));
  const dbFile=path.join(dir,'test.db');
- const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:dbFile,STORAGE_DIR:path.join(dir,'uploads'),SESSION_SECRET:'test-only'},stdio:'pipe'});
+ const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:dbFile,STORAGE_DIR:path.join(dir,'uploads'),SESSION_SECRET:'resubmission-test-only-stable-secret-32chars'},stdio:'pipe'});
  let log='';child.stdout.on('data',b=>log+=b);child.stderr.on('data',b=>log+=b);
  let db;
  try{
