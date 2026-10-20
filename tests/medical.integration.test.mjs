@@ -5,9 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-// Fixtures use Node's SQLite driver; the API child still exercises better-sqlite3.
-// This avoids the legacy addon's cleanup-hook crash in the Node 24 Linux test runner.
-import {DatabaseSync as Database} from 'node:sqlite';
+import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import sharp from 'sharp';
 

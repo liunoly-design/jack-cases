@@ -2,7 +2,7 @@ import type Router from '@koa/router';
 import { and,asc,count,desc,eq,inArray,or,sql,type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db,sqlite } from './db.js';
-import { users,requirements,cases,media,categories,tags,requirementTags,caseTags,requirementMedia,files,requirementFiles } from './schema.js';
+import { users,requirements,cases,media,categories,tags,requirementTags,caseTags,requirementMedia,files,requirementFiles,reviews,auditLogs } from './schema.js';
 import { pagination,paginationShape,pageResponse } from './pagination.js';
 
 type Actor={id:string;role:string;email:string};
@@ -48,6 +48,13 @@ function pageFiles(ids:string[]){
     const list=grouped.get(row.resource)??[];list.push(fileInfo(row.file));grouped.set(row.resource,list);
   }return grouped;
 }
+function pageHistory(ids:string[]){
+  const histories=new Map<string,{reviews:(typeof reviews.$inferSelect)[];submissions:{id:string;actorId:string;createdAt:number}[]}>();
+  for(const id of ids)histories.set(id,{reviews:[],submissions:[]});if(!ids.length)return histories;
+  for(const review of db.select().from(reviews).where(inArray(reviews.requirementId,ids)).orderBy(desc(reviews.createdAt),sql`rowid DESC`).all())histories.get(review.requirementId)!.reviews.push(review);
+  for(const event of db.select({id:auditLogs.id,actorId:auditLogs.actorId,createdAt:auditLogs.createdAt,resourceId:auditLogs.resourceId}).from(auditLogs).where(and(eq(auditLogs.resourceType,'requirement'),eq(auditLogs.action,'resubmit'),inArray(auditLogs.resourceId,ids))).orderBy(desc(auditLogs.createdAt),sql`rowid DESC`).all())histories.get(event.resourceId)!.submissions.push({id:event.id,actorId:event.actorId,createdAt:event.createdAt});
+  return histories;
+}
 function industryOptions(table:typeof cases|typeof requirements,where:SQL|undefined){
   return [...new Set(db.selectDistinct({value:table.industry}).from(table).where(where).all().flatMap(x=>(x.value??'').split(/[、,，/]/).map(v=>v.trim()).filter(Boolean)))].sort((a,b)=>a.localeCompare(b,'zh-CN'));
 }
@@ -60,9 +67,9 @@ export function registerLists(r:Router,actor:(ctx:any)=>Promise<Actor>,admin:(a:
     ctx.body=db.transaction(tx=>{
       const total=tx.select({total:count()}).from(requirements).where(where).get()!.total;
       const rows=tx.select().from(requirements).where(where).orderBy(...order(requirements,d.sort)).limit(p.pageSize).offset(p.offset).all();
-      const ids=rows.map(x=>x.id),linkedTags=pageTags('requirement',ids),linkedFiles=pageFiles(ids),images=new Map<string,{id:string;url:string}[]>();
+      const ids=rows.map(x=>x.id),linkedTags=pageTags('requirement',ids),linkedFiles=pageFiles(ids),history=pageHistory(ids),images=new Map<string,{id:string;url:string}[]>();
       if(ids.length)for(const link of tx.select().from(requirementMedia).where(inArray(requirementMedia.requirementId,ids)).orderBy(requirementMedia.sortOrder,requirementMedia.mediaId).all()){const list=images.get(link.requirementId)??[];list.push({id:link.mediaId,url:`/api/media/${link.mediaId}/content`});images.set(link.requirementId,list);}
-      return pageResponse(rows.map(x=>({...x,images:images.get(x.id)??[],files:linkedFiles.get(x.id)??[],tags:linkedTags.get(x.id)??[]})),total,p);
+      return pageResponse(rows.map(x=>({...x,...history.get(x.id),images:images.get(x.id)??[],files:linkedFiles.get(x.id)??[],tags:linkedTags.get(x.id)??[]})),total,p);
     });
   });
   r.get('/requirements/facets',async ctx=>{
