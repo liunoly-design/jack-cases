@@ -1,0 +1,13 @@
+jack-case@0.1.0 /Users/mac/Documents/需求平台/pr-sessions/10-dependency-remediation
+├─┬ @jack-case/api@ -> ./apps/api
+│ └─┬ tsx@4.23.15
+│   └── esbuild@0.28.2
+├─┬ @jack-case/web@ -> ./apps/web
+│ └─┬ vite@6.4.4
+│   └── esbuild@0.25.12 deduped
+└─┬ drizzle-kit@0.31.11
+  ├─┬ @esbuild-kit/esm-loader@2.6.5
+  │ └─┬ @esbuild-kit/core-utils@3.3.2
+  │   └── esbuild@0.25.12 deduped
+  └── esbuild@0.25.12
+

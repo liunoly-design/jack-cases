@@ -135,6 +135,12 @@ test('medical files and Markdown downloads obey scoped ownership and public appr
  assert.equal((await call(`/files/${fileId}/download`,{token:owner.apiKey})).body,'# Private attachment');
  const created=await call('/requirements',{token:owner.apiKey,method:'POST',body:{title:'Scoped medical materials',content:'# Private requirement',shareConsent:true,fileIds:[fileId],contentVersion:'v2.0'}});assert.equal(created.status,201);
  const reqId=created.body.id;assert.match(created.body.requirementCode,/^MED-REQ-/);assert.equal(created.body.contentVersion,'v2.0');
+ // A scoped Agent can explicitly resubmit only its own returned requirement, with write scope.
+ h.sql.prepare("UPDATE requirements SET status='rejected' WHERE id=?").run(reqId);
+ assert.equal((await call(`/requirements/${reqId}/resubmit`,{token:admin.apiKey,method:'POST',body:{}})).status,404);
+ assert.equal((await call(`/requirements/${reqId}/resubmit`,{token:owner.apiKey,method:'POST',body:{}})).status,200);
+ assert.equal((await call(`/requirements/${reqId}/resubmit`,{token:owner.apiKey,method:'POST',body:{}})).status,409);
+
  assert.equal((await call(`/requirements/${reqId}/download`,{token:owner.apiKey})).body,'# Private requirement');
  assert.match((await call(`/requirements/${reqId}/download?format=ai`,{token:owner.apiKey})).body,/v2.0/);
  assert.equal((await call(`/requirements/${reqId}/download`,{token:admin.apiKey})).status,404);assert.equal((await call(`/requirements/${reqId}/download`,{cookie:admin.cookie})).status,200);
@@ -152,6 +158,7 @@ test('medical files and Markdown downloads obey scoped ownership and public appr
  assert.equal((await call(`/files/${fileId}/download`,{token:other.apiKey})).status,403);assert.equal((await call(`/cases/${caseId}/download`,{token:other.apiKey})).status,404);
  const readonly=await call('/keys/rotate',{cookie:owner.cookie,method:'POST',body:{scopes:['requirements:read']}});
  assert.equal((await call(`/files/${fileId}/download`,{token:readonly.body.apiKey})).status,403);
+ assert.equal((await call(`/requirements/${reqId}/resubmit`,{token:readonly.body.apiKey,method:'POST',body:{}})).status,403);
  assert.equal((await call(`/files/${fileId}/download`,{token:owner.apiKey})).status,401);
  const deniedForm=new FormData();deniedForm.append('file',new Blob(['No write']),'denied.txt');assert.equal((await call('/files',{token:readonly.body.apiKey,method:'POST',body:deniedForm})).status,403);
 });
