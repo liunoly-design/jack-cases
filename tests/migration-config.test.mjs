@@ -10,11 +10,12 @@ import {DatabaseSync as Database} from 'node:sqlite';
 
 const root = path.resolve('.');
 const tsx = path.join(root, 'node_modules/tsx/dist/cli.mjs');
+const emptyEnvFile = path.join(root, 'tests/fixtures/isolated-empty.env');
 const migrationCount = JSON.parse(fs.readFileSync('apps/api/drizzle/meta/_journal.json', 'utf8')).entries.length;
 const fixture = fs.readFileSync('tests/fixtures/legacy-bootstrap.sql', 'utf8');
 const temp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jack-migration-'));
 function run(args, env, cwd = root) {
-  const result = spawnSync(process.execPath, [tsx, ...args], { cwd, env: { ...process.env, SESSION_SECRET: 'test-only-stable-key-'.repeat(3), ...env }, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [tsx, ...args], { cwd, env: { ...process.env, JACK_CASE_ENV_FILE: emptyEnvFile, PORT: '0', SESSION_SECRET: 'test-only-stable-key-'.repeat(3), ...env }, encoding: 'utf8' });
   return { status: result.status, output: result.stdout + result.stderr };
 }
 function setup(t) {
@@ -224,4 +225,20 @@ test('duplicate or ambiguous explicit body IDs fail adoption with an actionable 
     assert.deepEqual(db.prepare('SELECT * FROM requirements').all(),before);
     assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE name='__drizzle_migrations'").get().n,0);
   }
+});
+
+test('subprocess defaults isolate inherited environment-file selection and local port settings', t => {
+  const {dir,env}=setup(t);
+  const poisoned=path.join(dir,'local.env');
+  const trap=path.join(dir,'must-not-open.db');
+  fs.writeFileSync(poisoned,`SESSION_SECRET=${'synthetic-local-secret-'.repeat(3)}\nPORT=3002\nDATABASE_URL=${trap}\nSTORAGE_DIR=${path.join(dir,'must-not-write')}\n`);
+  const previous={JACK_CASE_ENV_FILE:process.env.JACK_CASE_ENV_FILE,PORT:process.env.PORT};
+  t.after(()=>{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+  process.env.JACK_CASE_ENV_FILE=poisoned;process.env.PORT='3002';
+  const probe=run(['-e',`import {config} from './apps/api/src/config.ts'; console.log(JSON.stringify({database:config.database,uploads:config.uploads,port:process.env.PORT}));`],env);
+  assert.equal(probe.status,0,probe.output);
+  assert.deepEqual(JSON.parse(probe.output),{database:env.DATABASE_URL,uploads:env.STORAGE_DIR,port:'0'});
+  const invalid=run(['-e',`import {sessionSecret} from './apps/api/src/config.ts'; sessionSecret();`],{...env,NODE_ENV:'production',SESSION_SECRET:undefined});
+  assert.notEqual(invalid.status,0);assert.match(invalid.output,/requires SESSION_SECRET/);
+  assert.ok(!fs.existsSync(trap));assert.ok(!fs.existsSync(env.DATABASE_URL));
 });
