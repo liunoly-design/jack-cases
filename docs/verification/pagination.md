@@ -11,4 +11,6 @@
 
 截图：同目录 `catalog-*`、`requirements-*`、`mine-*`、`media-*`、`users-*`、`cases-admin-*`。未做真实手机触控或辅助阅读器测试；需求/用户原有宽表保留容器内横向滚动。
 
-更新到 `bc37bf8` 后重新执行 `npm run typecheck`、`npm run build`、`npm test`，全部通过（32 tests）。保留 #17 用户权限逻辑，将超级管理员计数改为全量 SQL count；新增“两名超级管理员均在第一页之外”的回归。刷新页面后复验用户桌面/390px 末页，最后超级管理员操作保持禁用，截图已更新。
+第一次同步到 `bc37bf8` 后重新执行 `npm run typecheck`、`npm run build`、`npm test`，全部通过（32 tests）。保留 #17 用户权限逻辑，将超级管理员计数改为全量 SQL count；新增“两名超级管理员均在第一页之外”的回归。刷新页面后复验用户桌面/390px 末页，最后超级管理员操作保持禁用，截图已更新。
+
+最终同步到 `4b3c0d8`（#10 已合并）后，保留医疗界面和资料下载/关联/审核流程，所有原截图均更新为医疗版本。新增 205 份资料库验证：末页 11/11 可见“历史医药资料.md”，搜索“历史”并筛选 Agent 用途命中，390px 下选择后出现在已关联资料列表。新增 `files-desktop-last-page.png`、`files-mobile-filtered.png`。后端需求列表附件改为本页 ID 批量读取。最终 typecheck/build/test 全通过（48 tests，含 #10 的 14 项医疗子测试）。

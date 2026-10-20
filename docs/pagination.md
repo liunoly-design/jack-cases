@@ -1,6 +1,6 @@
 # 列表分页
 
-适用于当前 main 的 `GET /api/cases`、`/requirements`、`/media`、`/users`。
+适用于当前 main 的 `GET /api/cases`、`/requirements`、`/media`、`/users`、`/files`。
 
 - 不传 `page`、`pageSize`：保持 Agent 的数组响应，最多返回 200 条；需要读取完整数据的 Agent 应切换显式分页。
 - 传任一参数：返回 `{items,total,page,pageSize}`，默认第 1 页、每页 20 条。`page` 为 1–1,000,000 的十进制正整数，`pageSize` 为 1–100；重复、空值、小数、指数形式或超限值均返回 400。
@@ -28,8 +28,14 @@
 
 `npm test` 使用临时目录、临时 SQLite 和动态端口验证 205 条案例/媒体/同一用户需求、208 用户、200 条之外筛选、稳定排序、总数、权限隔离和非法参数，不依赖正在运行的服务。
 
+## 资料库筛选与权限
+
+`GET /api/files` 复用相同分页工具，`scope=mine|all`（默认 mine），all 需要管理权限；SQL count 与页查询共用权限条件。`q` 字面搜索文件名，`purpose=reference|agent|data|other` 筛选用途。原默认数组保持兼容；资料选择器使用显式分页，支持搜索、用途、排序、每页条数和翻页，选择项仍保留最多 10 份与私有文件权限规则。
+
 ## 与 #10 的集成
 
-本 PR 基于最新 `bc37bf8` 的 main（包含已合并 #17 用户权限保护与 #14 CI），未包含 #10 的医疗平台或 files 功能。#10 修改相同的 `server.ts`、`pages.tsx`，存在文本冲突。建议先合并 #10，再将本 PR 的分页模式适配到医疗界面；保留医疗字段、文案、权限和附件交互。若先合并本 PR，则 #10 合并时应保留 `registerLists`、分页 hook 和服务端筛选，并复验。
+执行期间 #10 已由上游合并，本 PR 已更新至 `4b3c0d8`（同时包含 #14 CI、#17 角色保护），仅在最新 main 上提供分页差量，未将 #10 业务提交作为本 PR 新增提交。
 
-#10 新增 `/files` 当前未覆盖；合并后应使用 `paginationShape`、`pagination`、`pageResponse`，在既有权限过滤后 SQL count / limit / offset，并接通对应 UI。两个合并顺序均需重新运行 typecheck/build/test，补 files 大于 200 条、权限和筛选验证，以及医疗端桌面/窄屏关键路径验收。此文档不代表 #10 已通过集成验证。
+已解决 `server.ts`、`pages.tsx` 的实际冲突，保留医疗品牌、Markdown/编号/版本、受控下载、资料关联与审核流程。新增 files 已接入相同分页工具与资料选择器；需求列表附件采用本页批量查询，保留原返回字段与操作。
+
+同步后重新运行 typecheck/build/test（48 tests，包含既有医疗上传下载/私有权限/版本/审核回归与新增 205 份文件的分页、检索、scope 验证），复验医疗界面桌面/390px 列表及资料库。未来若 main 同行继续变化，仍须复验这些关键路径。offset 分页的并发页边界限制见上文。
