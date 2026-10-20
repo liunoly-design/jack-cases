@@ -1,5 +1,25 @@
 {
-  "name":"jack-case","private":true,"version":"0.1.0","type":"module","workspaces":["apps/*","packages/*"],
-  "scripts":{"dev":"concurrently -k \"npm run dev -w @jack-case/api\" \"npm run dev -w @jack-case/web\"","build":"npm run build -w @jack-case/web && npm run build -w @jack-case/api","start":"npm run start -w @jack-case/api","db:generate":"drizzle-kit generate --config apps/api/drizzle.config.ts","db:migrate":"drizzle-kit migrate --config apps/api/drizzle.config.ts","typecheck":"tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit","test":"node --test tests/*.test.mjs"},
-  "devDependencies":{"concurrently":"^9.2.0","drizzle-kit":"^0.31.0","typescript":"^5.8.0"}
+  "name": "jack-case",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev -w @jack-case/api\" \"npm run dev -w @jack-case/web\"",
+    "build": "npm run build -w @jack-case/web && npm run build -w @jack-case/api",
+    "start": "npm run start -w @jack-case/api",
+    "db:generate": "drizzle-kit generate --config apps/api/drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config apps/api/drizzle.config.ts",
+    "typecheck": "tsc -p apps/api/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "demo:medical": "node scripts/import-medical-reference.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "drizzle-kit": "^0.31.0",
+    "typescript": "^5.8.0"
+  }
 }

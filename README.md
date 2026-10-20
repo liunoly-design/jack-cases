@@ -1,6 +1,6 @@
-# Jack Case — AI 工作坊需求与案例平台
+# 医疗大健康及医药领域需求平台
 
-学员提交带图片的企业需求，平台管理员人工脱敏与审核，发布可复用的案例和双提示词。
+面向医药流通、医院与健康服务、IVD 等领域。用户用 Markdown 记录需求，关联多份参考文件和 Agent 阅读材料；管理员人工脱敏审核后发布参考案例。
 
 ## 技术选型
 - Web: React + Vite + TypeScript + shadcn/ui 风格的本地组件（Button/Input/Card/Textarea）+ Tailwind
@@ -16,7 +16,7 @@ npm run dev
 ```
 打开 http://localhost:5173 。生产环境分别运行 `npm run build` 与 `npm start`；生产环境应通过 nginx 或其他反向代理统一提供前端静态文件、HTTPS 和 `/api` 反代。生产前必须设置 SESSION_SECRET、固定的数据库与文件目录，配置备份。
 
-> `db.ts` 包含首版数据库首次启动建表逻辑。后续变更使用 `npm run db:generate` / `npm run db:migrate`；正式发布前整理初版 SQL 为 Drizzle 迁移基线。
+> `db.ts` 包含首版数据库首次启动建表逻辑。本次采用同文件内的幂等增量迁移，首次启动自动添加缺失列与文件关联表，并为旧需求生成业务编号；正文、UUID、案例、图片和原有关系保持不变。迁移前备份数据库与上传目录。正式使用 Drizzle 迁移命令前需先建立与现有自举结构一致的迁移基线。
 
 ## 生产部署
 生产环境由 GitHub Actions 处理 `main` 推送：先安装依赖并构建，再调用 `hook.minapp.xin` 的 `jack-cases` hook，由服务器排队部署并等待线上健康接口确认目标 SHA。仓库需要设置 `DEPLOY_HOOK_TOKEN` Actions secret。服务器部署脚本只接受 `main` 可达的完整 commit SHA；应用发布目录为 `/data/jack-cases/releases/`，`/data/jack-cases/current` 指向当前版本，SQLite 与上传文件保存在 `/data/jack-cases/shared/`。systemd 运行 API，OpenResty 在 `jack-cases.minapp.xin` 提供 HTTPS、静态页面和 `/api` 代理。首次安装与故障排查见 [`ops/DEPLOYMENT.md`](ops/DEPLOYMENT.md)。
@@ -33,7 +33,7 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 
 `POST /api/requirements` 通过 cookie 或 `Authorization: Bearer wk_...` 认证。Body：
 ```json
-{"title":"车间日报自动化","content":"记录产量、异常，自动计算达成率并生成日报","shareConsent":true,"mediaIds":[]}
+{"title":"医院服务资料协作","content":"## 业务痛点\n资料分散，需要明确责任与跟进情况。","shareConsent":true,"mediaIds":[]}
 ```
 上传图片：`POST /api/media` 使用 multipart 的 `file` 字段，返回图片 `id`，再在需求提交时传 `mediaIds`。
 
@@ -43,15 +43,15 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 
 审核发布：`POST /api/requirements/:id/review`，例如：
 ```json
-{"decision":"approve","title":"生产日报自动汇总","summary":"制造企业日报自动化需求示例","requirementPrompt":"描述业务需求...","buildPrompt":"请搭建业务应用...","approvedMediaIds":[]}
+{"decision":"approve","title":"医院服务资料协作","summary":"医院服务团队协作参考需求","requirementPrompt":"描述业务需求...","buildPrompt":"请搭建业务应用...","approvedMediaIds":[],"approvedFileIds":[]}
 ```
-审核必须检查共享许可；**提示词和图片不会自动脱敏**，所有公开内容必须人工确认。
+审核必须检查共享许可；**正文、提示词、文件和图片不会自动脱敏**，所有公开内容必须人工确认。
 
 ## 三分钟验收演示
 1. 注册学员，保存自动创建的一次性 API Key；上传一张图片，提交勾选共享的需求。
 2. 重新登录后“我的需求”仍可查看。使用 Bearer Key 通过 API 提交第二条需求。
 3. 使用终端提升可信任管理员账号；管理员进入需求管理，审核脱敏文字，选择安全图片并发布。
-4. 普通学员在案例商城打开已发布案例，复制需求与搭建提示词。
+4. 普通学员在需求案例库打开已发布案例，复制需求与搭建提示词。
 5. 更换 API Key 后确认旧 Bearer Key 访问失败、新 Key 可用；重启服务器确认数据持续存在。
 
 ## 已知限制 / 第二阶段
@@ -61,3 +61,51 @@ node -e "const Database=require('better-sqlite3');const db=new Database('./stora
 - 当前上传文件按用户拥有权保管，未实现定期清理未关联附件。
 - 首版只面向单体部署；需补生产级速率限制、登录防暴力破解、CSRF 防护、文件恶意内容扫描与数据库备份。
 - 界面复用了 shadcn 风格的可维护本地组件，但尚未通过 shadcn CLI 安装完整组件库。
+
+
+## Markdown、业务编号与版本
+
+- `content` 原样保存 UTF-8 Markdown；历史纯文本也可继续使用，不批量改写正文。提交、我的需求详情和管理端支持编辑与安全预览（跳过 HTML）。
+- 需求创建后自动获得唯一 `requirementCode`，例如 `MED-REQ-0004`，创建时也可显式提供 `MED-REQ-` 加 4–10 位数字的编号；创建后不可改。`contentVersion` 默认 `v1.0`，显式导入可用 `v3.0`；修改正文而未显式指定版本时递增最后一段数字。
+- 版本记录当前内容版本，不是完整的历史修订库。审核发布时案例保存公开正文与编号/版本快照；之后编辑公开需求提示词会更新案例快照并递增案例版本，不读取私有原文。
+- `GET /api/requirements/:id/download` 原样下载 Markdown 正文；`?format=ai` 包含中文标题、编号、版本、正文以及明确分开的事实核实、假设、待确认与候选方案提示。详细 Agent 文件单独下载，不拼进短正文。
+- `GET /api/cases/:id/download` 从当前案例公开快照导出 AI 需求文档。旧案例回退到已公开需求提示词或案例简介，绝不回退到原始私有需求。
+
+## 文件资料 API 与审核
+
+`POST /api/files` 使用 multipart `file`（每次一个文件，界面逐个上传多选文件）和 `purpose`：`reference` 案例参考资料、`agent` Agent 需求文档、`data` 数据样例、`other` 其他材料。返回 `{id,name,purpose,mimeType,size,url}`。
+
+- 支持 `.md .txt .pdf .docx .xlsx .csv .json .zip .png .jpg .jpeg .webp`，每个 1 byte–20 MB，每个需求/案例最多 10 个文件；旧图片另外最多 10 张。旧 `POST /api/media`、`mediaIds` 及图片鉴权接口继续保留，原 `MAX_IMAGE_MB` 配置仍生效（默认 10 MB）。
+- 扩展名白名单、PDF/ZIP/Office 基础签名、UTF-8/JSON 格式及图片解码/像素限制；拒绝可执行扩展名、PE/ELF 头、HTML/SVG 文件。图片重新编码；服务端使用随机存储名，去除原文件名路径和控制字符。处理后的图片仍受 20 MB 限制。
+- 文件均强制附件下载，设置 `nosniff`、私有无缓存与 sandbox 响应头。服务器不解压 ZIP，也不内联 HTML/PDF/Office，不公开上传目录。这些校验不是完整文档解析或恶意内容扫描；含宏/脚本的容器内容需人工检查。
+- 请求结束（包括失败、超量与格式拒绝）清理临时上传目录。已上传但尚未关联的文件会保留在私有资料库，方便重选；本 PR 不自动删除持久文件。
+- `GET /api/files` 返回自己的资料库；管理员可用 `?scope=all` 查看全部文件元数据。需求创建和修改传 `fileIds` 完成关联；作者仅能关联自己的文件，管理人员可保留需求已有文件及关联自己上传的补充文件。
+- `GET /api/files/:id/download` 每次服务端鉴权：上传者、所关联需求的作者、管理角色（admin/super_admin/reviewer），或明确审核批准且仍在已发布案例中关联的资料。其他学员无法访问私有文件，未登录一律拒绝。
+- 需求审核传 `approvedFileIds`（必须属于该需求），默认空；`shareConsent=false` 不能发布。管理人员不能替作者把私有授权改为公开。重复审核已发布需求返回 409；独立创建关联案例再发布也检查共享授权。
+- 案例维护用 `PUT /api/cases/:id/files`，载荷 `{"files":[{"id":"文件ID","approved":true}]}`；批准仅对该案例生效。关联文件需来自当前案例、原需求或当前管理员自己的上传。案例详情只向普通用户返回已批准文件；下架/未发布案例不能作为公开下载授权来源。
+- 上传、文件下载、需求/案例 Markdown 下载和资料审核均写入原有审计表。
+
+## 独立本地演示与私有参考导入
+
+为避免影响其他服务，可在两个终端从仓库根运行（路径均用绝对路径）：
+
+```bash
+PORT=3011 APP_ORIGIN=http://127.0.0.1:5181 DATABASE_URL="$PWD/storage/medical-demo.db" STORAGE_DIR="$PWD/storage/medical-files" SESSION_SECRET=local-demo-only npm run dev -w @jack-case/api
+WEB_PORT=5181 API_ORIGIN=http://127.0.0.1:3011 npm run dev -w @jack-case/web
+```
+
+打开 `http://127.0.0.1:5181`，创建本地账号；管理员设置沿用上文方式，仅操作自己的演示数据库。`SESSION_SECRET` 示例仅限本地演示。
+
+用户提供的 MED-REQ-0004 样稿及完整 ZIP **不提交到 Git**。已有样稿时显式执行：
+
+```bash
+MEDICAL_DEMO_API_KEY='<本地账号自己的 Key>' npm run demo:medical -- '<已解压样稿目录>'
+```
+
+脚本接受原始中文 JSON 文件名或安全解压后的 `03.json`/`04.json`，仅允许 localhost API。它转换对应 Markdown 正文与独立 Agent 文档，导入 `MED-REQ-0004` / `v3.0`，强制 `shareConsent=false`、难度未评估，不使用旧平台 UUID、分类/标签/图片 ID。已存在同业务编号则跳过，不覆盖记录；Markdown 副本保存在被 Git 忽略的 `storage/demo-materials/`。它不由启动或迁移自动调用，不会产生公开示例业务数据。
+
+## 本 PR 验证
+
+`npm run typecheck`、`npm run build`、`npm test`。集成测试启动独立临时 SQLite、上传目录与 HTTP 服务，验证旧库迁移/图片兼容、多文件关联、中文 Markdown 与元数据、权限越界、逐案例批准、下架撤销、私有授权防绕过、体积/数量与临时文件清理。测试结束关闭服务并删除临时数据，不接触运行中的开发/生产库。
+
+浏览器用 cua_repl 验证桌面 1280 px 与窄屏 390 px：手动提交、Markdown 预览/编辑、多个文件上传、需求关联、管理员补充资料/审核、案例资料独立维护、普通账号下载 AI 文档与单独 Agent 文件。

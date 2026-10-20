@@ -31,10 +31,16 @@
 - [桌面发布后记录](desktop-published.png)
 - [窄屏发布后记录](mobile-published.png)
 
-## 与 PR #10 的合并说明
+## 上游同步结果
 
-本分支基于 upstream main `06acd89` 独立实现。制作时 #10 尚未合并，本 PR 不包含其整包医疗平台或文件系统功能，无依赖即可验证。
+已在同一分支合并 upstream main `4b3c0d8`（包含已合并的 #10、#14、#17），逐处解决 server.ts 和 pages.tsx 冲突。当前 PR diff 仅保留退回修改闭环的增量。
 
-两者修改了 `apps/api/src/server.ts` 的需求接口，以及 `apps/web/src/pages.tsx` 的提交/需求页面，预计存在文本冲突。建议先合并 #10，再将本 PR 更新到新 main 并解决冲突；不自动合并。
+保留医疗文案、requirementCode/contentVersion、Markdown 预览/原文和 AI 文档下载、Materials/MaterialList/fileIds、逐文件审核、publicContent，以及 #17 的用户角色和最后超级管理员保护。作者完整编辑页替换了 #10 的正文/材料内联编辑，保留其全部功能并支持其他业务字段、图片和标签。编辑时不发送旧 contentVersion，让正文变更按主分支逻辑自动递增版本；保存及重提均不修改业务编号。
 
-冲突解决必须同时保留本 PR 的状态守卫、独立 resubmit 动作及历史返回，以及 #10 对 `content` 的 Markdown 原文处理、材料字段校验/关系写入/上传与作者编辑控件。PATCH 对未提供材料字段应保持原值，不得以主分支尚无材料的表单覆盖或清空 #10 的材料关系。本 PR 的 reqSchema.partial 与字段分离应以 #10 扩展后的 schema 为基础合并，不能用本分支旧 schema 覆盖材料字段。合并后需再回归材料保留路径。
+PATCH 保留未提供的 fileIds，显式提交时替换材料关联。作者可保留管理员已经合法关联到自己需求的材料，但不得关联其他用户尚未关联的文件。新增真实多文件上传回归，验证这一边界。
+
+同步后重新运行 typecheck、build、test 和 diff 检查；共 41 项测试通过，包括 #10 的全部材料/旧数据兼容集成测试、#17 的角色层级与最后超级管理员测试。新增回归同时验证编号不变、正文自动递增版本、metadata/fileIds 保存与 resubmit 不递增版本、材料省略保留/显式补充、管理员资料保留、非法材料禁止关联、审批只公开选中文件、案例继承编号版本与 publicContent、AI 下载不泄漏私有正文，原始附件仍受权限保护。
+
+截图已全部更新为合并后的医疗平台。浏览器使用独立主机 `http://resubmission.localhost:5185`（本机无法绑定未配置的 127.0.0.5，改用独立 .localhost 主机隔离 Cookie），API 3015，隔离 SQLite `/tmp/jack-resubmission-ui/updated.db` 和目录 `/tmp/jack-resubmission-ui/updated-uploads`。未清理其他 session Cookie，也未停止其他 session 服务。
+
+桌面和 390px 窄屏验证：管理员退回 → 作者看到具体原因与 MED-REQ-0001/v1.0 → 编辑正文、预览 Markdown、选择新材料（保留原始资料和管理员资料）→ 保存仍已退回，版本为 v1.1 → 独立重提后仍 v1.1、三份资料均保留 → 管理员看到新版正文、材料和历史，逐文件只批准补充资料并填写脱敏公开正文 → 发布成功，历史、编号和版本保留且无重复审核按钮。
