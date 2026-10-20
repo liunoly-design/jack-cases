@@ -16,3 +16,5 @@
 最终同步到 `4b3c0d8`（#10 已合并）后，保留医疗界面和资料下载/关联/审核流程，所有原截图均更新为医疗版本。新增 205 份资料库验证：末页 11/11 可见“历史医药资料.md”，搜索“历史”并筛选 Agent 用途命中，390px 下选择后出现在已关联资料列表。新增 `files-desktop-last-page.png`、`files-mobile-filtered.png`。后端需求列表附件改为本页 ID 批量读取。最终 typecheck/build/test 全通过（48 tests，含 #10 的 14 项医疗子测试）。
 
 后台“图片与资料”现有文件总库也单独接入分页/文件名搜索/用途筛选；与历史图片各有独立页码。桌面/390px 下验证两者同时 11/11，筛选文件后文件页回 1/1、图片仍在 11/11，截图已更新。
+
+GitHub Node 24/Linux 首次 CI 的分页测试全部通过，但既有医疗集成测试进程在 native better-sqlite3 Statement 清理时触发 RemoveEnvironmentCleanupHook 断言退出。仅将医疗测试的夹具连接改用 Node 内置 DatabaseSync；服务端子进程继续实际运行原 better-sqlite3，全部上传/下载/审核断言保留，无依赖升级或生产代码规避。
