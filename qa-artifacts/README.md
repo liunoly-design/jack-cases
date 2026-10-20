@@ -4,7 +4,7 @@ Issue：tans/jack-cases#26；PR：tans/jack-cases#27。
 
 ## 基线与范围
 
-最终基于 upstream/main `3af07ff`，包含已合并的 #10、#14、#17、#16、#32、#23 和 #20。已解决 Catalog 冲突并保留其他分页页面、重新提交流程、迁移配置和原生依赖测试。
+最终基于 upstream/main `5e18d20`，包含已合并的 #10、#14、#17、#16、#32、#23 和 #20。已解决 Catalog 冲突并保留其他分页页面、重新提交流程、迁移配置和原生依赖测试。
 
 本项只添加 URL 状态解析、组合、导航恢复及共享分页组件的可选受控模式。案例列表始终发送完整筛选和显式 page/pageSize/sort，使用服务端 items/total 和 `/cases/facets`；不对当前页再次过滤，不回退到前 200 条。不修改搜索后端。其他列表继续使用原有非受控分页。
 
@@ -28,6 +28,6 @@ Issue：tans/jack-cases#26；PR：tans/jack-cases#27。
 
 最终正式分支：typecheck、build、npm test（67 项）通过，覆盖 URL 解析组合、#20 分页、#16 重提、#23 迁移和 #32 原生依赖。
 
-远端早期失败来自旧管理员夹具在 Node 24 Linux 清理 SQLite 原生对象，以及三个既有夹具不符合新 runtime 的测试密钥长度。仅修正夹具；未降低运行时校验，生产驱动不变。最终以 PR 最新 head 的 CI 为准。
+远端早期失败来自旧管理员夹具在 Node 24 Linux 清理 SQLite 原生对象，以及三个既有夹具不符合新 runtime 的测试密钥长度。管理员夹具改用 Node SQLite；三个密钥修复已采用后续上游合入的版本。未降低运行时校验，生产驱动不变。最终以 PR 最新 head 的 CI 为准。
 
 截图：[桌面分页恢复](desktop-pagination-restored.jpg)、[窄屏清除和分页](mobile-pagination-clear.jpg)。验收服务结束后停止，保留本地证据。
