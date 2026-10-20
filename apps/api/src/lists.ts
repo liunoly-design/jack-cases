@@ -47,19 +47,19 @@ function pageCaseImages(ids:string[],a:Actor){
   const rows=db.select({resource:caseMedia.caseId,id:media.id}).from(caseMedia).innerJoin(media,eq(caseMedia.mediaId,media.id)).where(and(inArray(caseMedia.caseId,ids),canReview?undefined:eq(media.status,'approved'))).orderBy(caseMedia.sortOrder,caseMedia.mediaId).all();
   for(const row of rows){const list=grouped.get(row.resource)??[];list.push({id:row.id,url:`/api/media/${row.id}/content`});grouped.set(row.resource,list);}return grouped;
 }
-function pageReviewHistory(ids:string[]){
-  const grouped=new Map<string,{reviews:unknown[];submissions:unknown[]}>();if(!ids.length)return grouped;
-  const ensure=(id:string)=>{const item=grouped.get(id)??{reviews:[],submissions:[]};grouped.set(id,item);return item;};
-  for(const row of db.select({resource:reviews.requirementId,review:reviews}).from(reviews).where(inArray(reviews.requirementId,ids)).orderBy(desc(reviews.createdAt),desc(sql`rowid`)).all())ensure(row.resource).reviews.push(row.review);
-  for(const row of db.select({resource:auditLogs.resourceId,id:auditLogs.id,actorId:auditLogs.actorId,createdAt:auditLogs.createdAt}).from(auditLogs).where(and(eq(auditLogs.resourceType,'requirement'),eq(auditLogs.action,'resubmit'),inArray(auditLogs.resourceId,ids))).orderBy(desc(auditLogs.createdAt),desc(sql`rowid`)).all())ensure(row.resource).submissions.push({id:row.id,actorId:row.actorId,createdAt:row.createdAt});
-  return grouped;
-}
 const fileInfo=(f:typeof files.$inferSelect)=>({id:f.id,name:f.name,purpose:f.purpose,mimeType:f.mimeType,size:f.size,url:`/api/files/${f.id}/download`});
 function pageFiles(ids:string[]){
   const grouped=new Map<string,ReturnType<typeof fileInfo>[]>();if(!ids.length)return grouped;
   for(const row of db.select({resource:requirementFiles.requirementId,file:files}).from(requirementFiles).innerJoin(files,eq(requirementFiles.fileId,files.id)).where(inArray(requirementFiles.requirementId,ids)).orderBy(files.createdAt,files.id).all()){
     const list=grouped.get(row.resource)??[];list.push(fileInfo(row.file));grouped.set(row.resource,list);
   }return grouped;
+}
+function pageHistory(ids:string[]){
+  const histories=new Map<string,{reviews:(typeof reviews.$inferSelect)[];submissions:{id:string;actorId:string;createdAt:number}[]}>();
+  for(const id of ids)histories.set(id,{reviews:[],submissions:[]});if(!ids.length)return histories;
+  for(const review of db.select().from(reviews).where(inArray(reviews.requirementId,ids)).orderBy(desc(reviews.createdAt),sql`rowid DESC`).all())histories.get(review.requirementId)!.reviews.push(review);
+  for(const event of db.select({id:auditLogs.id,actorId:auditLogs.actorId,createdAt:auditLogs.createdAt,resourceId:auditLogs.resourceId}).from(auditLogs).where(and(eq(auditLogs.resourceType,'requirement'),eq(auditLogs.action,'resubmit'),inArray(auditLogs.resourceId,ids))).orderBy(desc(auditLogs.createdAt),sql`rowid DESC`).all())histories.get(event.resourceId)!.submissions.push({id:event.id,actorId:event.actorId,createdAt:event.createdAt});
+  return histories;
 }
 function industryOptions(table:typeof cases|typeof requirements,where:SQL|undefined){
   return [...new Set(db.selectDistinct({value:table.industry}).from(table).where(where).all().flatMap(x=>(x.value??'').split(/[、,，/]/).map(v=>v.trim()).filter(Boolean)))].sort((a,b)=>a.localeCompare(b,'zh-CN'));
@@ -73,9 +73,9 @@ export function registerLists(r:Router,actor:(ctx:any)=>Promise<Actor>,admin:(a:
     ctx.body=db.transaction(tx=>{
       const total=tx.select({total:count()}).from(requirements).where(where).get()!.total;
       const rows=tx.select().from(requirements).where(where).orderBy(...order(requirements,d.sort)).limit(p.pageSize).offset(p.offset).all();
-      const ids=rows.map(x=>x.id),linkedTags=pageTags('requirement',ids),linkedFiles=pageFiles(ids),history=pageReviewHistory(ids),images=new Map<string,{id:string;url:string}[]>();
+      const ids=rows.map(x=>x.id),linkedTags=pageTags('requirement',ids),linkedFiles=pageFiles(ids),history=pageHistory(ids),images=new Map<string,{id:string;url:string}[]>();
       if(ids.length)for(const link of tx.select().from(requirementMedia).where(inArray(requirementMedia.requirementId,ids)).orderBy(requirementMedia.sortOrder,requirementMedia.mediaId).all()){const list=images.get(link.requirementId)??[];list.push({id:link.mediaId,url:`/api/media/${link.mediaId}/content`});images.set(link.requirementId,list);}
-      return pageResponse(rows.map(x=>({...x,images:images.get(x.id)??[],files:linkedFiles.get(x.id)??[],tags:linkedTags.get(x.id)??[],reviews:history.get(x.id)?.reviews??[],submissions:history.get(x.id)?.submissions??[]})),total,p);
+      return pageResponse(rows.map(x=>({...x,...history.get(x.id),images:images.get(x.id)??[],files:linkedFiles.get(x.id)??[],tags:linkedTags.get(x.id)??[]})),total,p);
     });
   });
   r.get('/requirements/facets',async ctx=>{
