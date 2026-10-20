@@ -7,7 +7,9 @@ import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {createHash} from 'node:crypto';
-import Database from 'better-sqlite3';
+// The fixture uses Node SQLite to avoid better-sqlite3 cleanup crashes on Node 24 Linux.
+// The HTTP API subprocess continues to exercise the production better-sqlite3 driver.
+import {DatabaseSync as Database} from 'node:sqlite';
 
 // Real HTTP/auth/transaction regression; never opens an application database.
 test('user management hierarchy', {timeout:30000}, async t=>{
