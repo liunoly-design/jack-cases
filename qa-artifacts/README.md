@@ -4,7 +4,7 @@ Issue：tans/jack-cases#26；PR：tans/jack-cases#27。
 
 ## 基线与范围
 
-最终基于 upstream/main `5e18d20`，包含已合并的 #10、#14、#17、#16、#32、#23 和 #20。已解决 Catalog 冲突并保留其他分页页面、重新提交流程、迁移配置和原生依赖测试。
+最终基于 upstream/main `239c588`，包含已合并的 #10、#14、#17、#16、#32、#23 、#20、#22 和 #35。已解决 Catalog 冲突并保留其他分页页面、重新提交流程、迁移配置和原生依赖测试。
 
 本项只添加 URL 状态解析、组合、导航恢复及共享分页组件的可选受控模式。案例列表始终发送完整筛选和显式 page/pageSize/sort，使用服务端 items/total 和 `/cases/facets`；不对当前页再次过滤，不回退到前 200 条。不修改搜索后端。其他列表继续使用原有非受控分页。
 
@@ -24,10 +24,12 @@ Issue：tans/jack-cases#26；PR：tans/jack-cases#27。
 6. 390px 窄屏清除筛选回第一页，保留每页 50 和 oldest；切网格后 URL 为 `/?view=grid&pageSize=50&sort=oldest`。控件和分页可用，无横向溢出。
 7. 详情外部 returnTo 被拒绝，默认返回 `/`；直接访问详情也有默认返回。额外检查“我的需求”非受控分页正常（0 条、1/1 页）。
 
+8. 与 #22 整合后，带两张图片的第二页案例：列表使用显式指定的第二张封面，画廊缩略图仍按第一张、第二张排序，点击第一张可正常切换。新详情面包屑安全返回第二页，刷新及前进后退仍保留 URL 条件；窄屏清除与网格切换再次通过。
+
 ## 自动检查
 
-最终正式分支：typecheck、build、npm test（67 项）通过，覆盖 URL 解析组合、#20 分页、#16 重提、#23 迁移和 #32 原生依赖。
+最终正式分支：typecheck、build、npm test（68 项）通过，覆盖 URL 解析组合、#20 分页、#16 重提、#23 迁移和 #32 原生依赖。
 
 远端早期失败来自旧管理员夹具在 Node 24 Linux 清理 SQLite 原生对象，以及三个既有夹具不符合新 runtime 的测试密钥长度。管理员夹具改用 Node SQLite；三个密钥修复已采用后续上游合入的版本。未降低运行时校验，生产驱动不变。最终以 PR 最新 head 的 CI 为准。
 
-截图：[桌面分页恢复](desktop-pagination-restored.jpg)、[窄屏清除和分页](mobile-pagination-clear.jpg)。验收服务结束后停止，保留本地证据。
+截图：[封面详情与返回](detail-cover-return.jpg)、[桌面分页恢复](desktop-pagination-restored.jpg)、[窄屏清除和分页](mobile-pagination-clear.jpg)。验收服务结束后停止，保留本地证据。
