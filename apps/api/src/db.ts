@@ -49,7 +49,7 @@ export const db=drizzle(sqlite,{schema});
 // Additive medical-platform migration: legacy content/media stay untouched.
 for(const table of ['requirements','cases']){
   const existing=new Set((sqlite.pragma('table_info('+table+')') as {name:string}[]).map(c=>c.name));
-  for(const [name,definition] of Object.entries({requirement_code:'TEXT',content_version:"TEXT NOT NULL DEFAULT 'v1.0'",...(table==='cases'?{public_content:'TEXT'}:{})})){
+  for(const [name,definition] of Object.entries({cover_media_id:'TEXT',requirement_code:'TEXT',content_version:"TEXT NOT NULL DEFAULT 'v1.0'",...(table==='cases'?{public_content:'TEXT'}:{})})){
     if(!existing.has(name))sqlite.exec('ALTER TABLE '+table+' ADD COLUMN '+name+' '+definition);
   }
 }
