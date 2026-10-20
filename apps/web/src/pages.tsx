@@ -1,3 +1,4 @@
+import {usePage} from './lib/pagination';
 import {Materials,MaterialList,RequirementDownloads,type Material} from './materials';
 import React,{useEffect,useState} from 'react';import{Link,NavLink,Navigate,Route,Routes,useNavigate,useParams}from'react-router-dom';import{useQuery,useQueryClient}from'@tanstack/react-query';import{LayoutDashboard,ClipboardList,BookOpen,Users,Images,Bot,FolderTree,Plus,Grid2X2,List as ListIcon,Search,LogOut,Copy,Check,ShieldCheck,Upload,ChevronRight,ChevronDown,RefreshCw}from'lucide-react';
 import{api,post,patch}from'./lib/api';import{Button}from'./components/ui/button';import{Input}from'./components/ui/input';import{Textarea}from'./components/ui/textarea';import{Card,CardContent}from'./components/ui/card';
@@ -10,20 +11,6 @@ const reviewStatusLabels:Record<string,string>={submitted:'待审核',published:
 const difficultyLabels:Record<string,string>={easy:'简单',medium:'中等',hard:'复杂'};
 const implementationStatusLabels:Record<string,string>={pending:'待实现',building:'开发中',completed:'已实现',verified:'已验证'};
 function useData<T>(key:string,url:string){return useQuery<T>({queryKey:[key,url],queryFn:()=>api(url)});}function ErrorLine({error}:{error:unknown}){return error?<p className="text-sm text-red-600">{error instanceof Error?error.message:String(error)}</p>:null;}
-type Page<T>={items:T[];total:number;page:number;pageSize:number};
-function usePage<T>(key:string,path:string,filters:Record<string,string>={}){
- const[sort,setSort]=useState('newest'),[pageSize,setPageSize]=useState(20);
- const signature=JSON.stringify([path,filters,sort,pageSize]);
- const[position,setPosition]=useState({signature,page:1});
- const page=position.signature===signature?position.page:1;
- const setPage=(next:number)=>setPosition({signature,page:next});
- const params=new URLSearchParams({...filters,page:String(page),pageSize:String(pageSize),sort});
- const query=useData<Page<T>>(key,path+(path.includes('?')?'&':'?')+params);
- const total=query.data?.total??0,last=Math.max(1,Math.ceil(total/pageSize));
- useEffect(()=>{if(position.signature!==signature)setPosition({signature,page:1});else if(query.data&&page>last)setPosition({signature,page:last});},[query.data,page,last,signature,position.signature]);
- const controls=<div className="space-y-2"><ErrorLine error={query.error}/>{query.error&&<Button variant="outline" onClick={()=>query.refetch()}>重新载入</Button>}<nav aria-label="列表分页" className="flex flex-wrap items-center gap-3 rounded-lg border bg-white p-3 text-sm"><p role="status" className="mr-auto tabular-nums">{query.isFetching?'正在载入…':`共 ${total} 条 · 第 ${page} / ${last} 页`}</p><select aria-label="列表排序" className="min-h-11 rounded-md border px-2" value={sort} onChange={e=>setSort(e.target.value)}><option value="newest">最新优先</option><option value="oldest">最早优先</option></select><select aria-label="每页条数" className="min-h-11 rounded-md border px-2" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>{[20,50,100].map(n=><option key={n} value={n}>每页 {n} 条</option>)}</select><div className="flex flex-wrap gap-2"><Button variant="outline" disabled={page===1||query.isFetching} onClick={()=>setPage(1)}>首页</Button><Button variant="outline" disabled={page===1||query.isFetching} onClick={()=>setPage(page-1)}>上一页</Button><Button variant="outline" disabled={!query.data||page>=last||query.isFetching} onClick={()=>setPage(page+1)}>下一页</Button><Button variant="outline" disabled={!query.data||page>=last||query.isFetching} onClick={()=>setPage(last)}>末页</Button></div></nav></div>;
- return {...query,items:query.data?.items??[],total,controls};
-}
 function Panel({title,children,action}:{title:string;children:React.ReactNode;action?:React.ReactNode}){return <div className="space-y-5"><div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-semibold tracking-tight">{title}</h1>{action}</div>{children}</div>;}
 const MarkdownRenderer=React.lazy(async()=>{const[{default:ReactMarkdown},{default:remarkGfm}]=await Promise.all([import('react-markdown'),import('remark-gfm')]);return{default:({content}:{content:string})=><div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{content}</ReactMarkdown></div>};});
 function Markdown({content}:{content:string}){return <React.Suspense fallback={<p className="text-sm text-slate-500">正在载入富文本…</p>}><MarkdownRenderer content={content}/></React.Suspense>;}

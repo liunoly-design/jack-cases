@@ -2,7 +2,7 @@ import type Router from '@koa/router';
 import { and,asc,count,desc,eq,inArray,or,sql,type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { db,sqlite } from './db.js';
-import { users,requirements,cases,media,categories,tags,requirementTags,caseTags,requirementMedia } from './schema.js';
+import { users,requirements,cases,media,categories,tags,requirementTags,caseTags,requirementMedia,files,requirementFiles } from './schema.js';
 import { pagination,paginationShape,pageResponse } from './pagination.js';
 
 type Actor={id:string;role:string;email:string};
@@ -10,13 +10,14 @@ const text=z.string().trim().max(200);
 const filters={q:text.optional(),categoryId:text.optional(),industry:text.optional(),difficulty:z.enum(['easy','medium','hard']).optional(),implementationStatus:z.enum(['pending','building','completed','verified']).optional(),tagIds:z.string().max(2400).transform(v=>v.split(',')).refine(v=>v.length<=12&&v.every(Boolean)&&new Set(v).size===v.length,'Expected 1–12 distinct tag IDs').optional()};
 const caseQuery=z.object({...paginationShape,...filters,scope:z.enum(['published','all']).default('published'),status:z.enum(['published','draft','archived']).optional()}).strict();
 const reqQuery=z.object({...paginationShape,...filters,scope:z.enum(['mine','all']).default('mine'),category:text.optional(),status:z.enum(['submitted','published','rejected','draft']).optional(),consent:z.enum(['authorized','private']).optional()}).strict();
+const fileQuery=z.object({...paginationShape,scope:z.enum(['mine','all']).default('mine'),q:text.optional(),purpose:z.enum(['reference','agent','data','other']).optional()}).strict();
 const simpleQuery=z.object(paginationShape).strict();
 // Deterministic scalar helpers preserve the existing legacy category and multi-industry UI semantics.
 // SQLite still performs filtering/grouping/counting before limit/offset; no full records leave SQL.
 sqlite.function('embedded_category',{deterministic:true},(content:unknown)=>String(content).match(/(?:^|\n)\s*业务分类\s*[：:]\s*([^\n]+)/)?.[1]?.trim()??'');
 sqlite.function('has_industry',{deterministic:true},(value:unknown,selected:unknown)=>String(value??'').split(/[、,，/]/).map(x=>x.trim()).includes(String(selected))?1:0);
 const categoryName=sql<string>`coalesce((select name from categories where id=${requirements.categoryId}),nullif(embedded_category(${requirements.content}),''),'未分类')`;
-const order=(table:typeof cases|typeof requirements|typeof media|typeof users,sort:string)=>sort==='oldest'?[asc(table.createdAt),asc(table.id)]:[desc(table.createdAt),desc(table.id)];
+const order=(table:typeof cases|typeof requirements|typeof media|typeof users|typeof files,sort:string)=>sort==='oldest'?[asc(table.createdAt),asc(table.id)]:[desc(table.createdAt),desc(table.id)];
 function categoryTree(id:string){
   const rows=db.select({id:categories.id,parentId:categories.parentId}).from(categories).all();
   const ids=new Set([id]);let size=0;
@@ -40,6 +41,13 @@ function pageTags(type:'case'|'requirement',ids:string[]){
   const rows=db.select({resource,tag:tags}).from(relation).innerJoin(tags,eq(relation.tagId,tags.id)).where(inArray(resource,ids)).orderBy(tags.sortOrder,tags.name,tags.id).all();
   for(const row of rows){const list=grouped.get(row.resource)??[];list.push(row.tag);grouped.set(row.resource,list);}return grouped;
 }
+const fileInfo=(f:typeof files.$inferSelect)=>({id:f.id,name:f.name,purpose:f.purpose,mimeType:f.mimeType,size:f.size,url:`/api/files/${f.id}/download`});
+function pageFiles(ids:string[]){
+  const grouped=new Map<string,ReturnType<typeof fileInfo>[]>();if(!ids.length)return grouped;
+  for(const row of db.select({resource:requirementFiles.requirementId,file:files}).from(requirementFiles).innerJoin(files,eq(requirementFiles.fileId,files.id)).where(inArray(requirementFiles.requirementId,ids)).orderBy(files.createdAt,files.id).all()){
+    const list=grouped.get(row.resource)??[];list.push(fileInfo(row.file));grouped.set(row.resource,list);
+  }return grouped;
+}
 function industryOptions(table:typeof cases|typeof requirements,where:SQL|undefined){
   return [...new Set(db.selectDistinct({value:table.industry}).from(table).where(where).all().flatMap(x=>(x.value??'').split(/[、,，/]/).map(v=>v.trim()).filter(Boolean)))].sort((a,b)=>a.localeCompare(b,'zh-CN'));
 }
@@ -52,9 +60,9 @@ export function registerLists(r:Router,actor:(ctx:any)=>Promise<Actor>,admin:(a:
     ctx.body=db.transaction(tx=>{
       const total=tx.select({total:count()}).from(requirements).where(where).get()!.total;
       const rows=tx.select().from(requirements).where(where).orderBy(...order(requirements,d.sort)).limit(p.pageSize).offset(p.offset).all();
-      const ids=rows.map(x=>x.id),linkedTags=pageTags('requirement',ids),images=new Map<string,{id:string;url:string}[]>();
+      const ids=rows.map(x=>x.id),linkedTags=pageTags('requirement',ids),linkedFiles=pageFiles(ids),images=new Map<string,{id:string;url:string}[]>();
       if(ids.length)for(const link of tx.select().from(requirementMedia).where(inArray(requirementMedia.requirementId,ids)).orderBy(requirementMedia.sortOrder,requirementMedia.mediaId).all()){const list=images.get(link.requirementId)??[];list.push({id:link.mediaId,url:`/api/media/${link.mediaId}/content`});images.set(link.requirementId,list);}
-      return pageResponse(rows.map(x=>({...x,images:images.get(x.id)??[],tags:linkedTags.get(x.id)??[]})),total,p);
+      return pageResponse(rows.map(x=>({...x,images:images.get(x.id)??[],files:linkedFiles.get(x.id)??[],tags:linkedTags.get(x.id)??[]})),total,p);
     });
   });
   r.get('/requirements/facets',async ctx=>{
@@ -68,6 +76,11 @@ export function registerLists(r:Router,actor:(ctx:any)=>Promise<Actor>,admin:(a:
     ctx.body=db.transaction(tx=>{const total=tx.select({total:count()}).from(cases).where(where).get()!.total;const rows=tx.select().from(cases).where(where).orderBy(...order(cases,d.sort)).limit(p.pageSize).offset(p.offset).all();const linked=pageTags('case',rows.map(x=>x.id));return pageResponse(rows.map(x=>({...x,tags:linked.get(x.id)??[]})),total,p);});
   });
   r.get('/cases/facets',async ctx=>{const a=await actor(ctx);const d=z.object({scope:z.enum(['published','all']).default('published')}).strict().parse(ctx.query);if(d.scope==='all')admin(a);const access=d.scope==='published'?eq(cases.status,'published'):undefined;ctx.body={industries:industryOptions(cases,access),total:db.select({total:count()}).from(cases).where(access).get()!.total};});
+  r.get('/files',async ctx=>{
+    const a=await actor(ctx),d=fileQuery.parse(ctx.query);if(d.scope==='all')admin(a);
+    const where=and(d.scope==='all'?undefined:eq(files.ownerId,a.id),d.q?sql`instr(lower(${files.name}),lower(${d.q}))>0`:undefined,d.purpose?eq(files.purpose,d.purpose):undefined),p=pagination(d);
+    ctx.body=db.transaction(tx=>pageResponse(tx.select().from(files).where(where).orderBy(...order(files,d.sort)).limit(p.pageSize).offset(p.offset).all().map(fileInfo),tx.select({total:count()}).from(files).where(where).get()!.total,p));
+  });
   r.get('/media',async ctx=>{const a=await actor(ctx);admin(a);const d=simpleQuery.parse(ctx.query),p=pagination(d);ctx.body=db.transaction(tx=>pageResponse(tx.select({id:media.id,ownerId:media.ownerId,status:media.status,size:media.size,createdAt:media.createdAt}).from(media).orderBy(...order(media,d.sort)).limit(p.pageSize).offset(p.offset).all(),tx.select({total:count()}).from(media).get()!.total,p));});
   r.get('/users/facets',async ctx=>{const a=await actor(ctx);admin(a);z.object({}).strict().parse(ctx.query);ctx.body={activeSupers:db.select({total:count()}).from(users).where(and(eq(users.role,'super_admin'),eq(users.status,'active'))).get()!.total};});
   r.get('/users',async ctx=>{const a=await actor(ctx);admin(a);const d=simpleQuery.parse(ctx.query),p=pagination(d);ctx.body=db.transaction(tx=>pageResponse(tx.select({id:users.id,email:users.email,role:users.role,status:users.status,createdAt:users.createdAt}).from(users).orderBy(...order(users,d.sort)).limit(p.pageSize).offset(p.offset).all(),tx.select({total:count()}).from(users).get()!.total,p));});

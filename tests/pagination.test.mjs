@@ -36,10 +36,13 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
    insertReq.run('r'+i,'alice',old?'历史需求':'需求 '+i,old?'业务分类：历史分类\n历史问题目标':'普通业务需求',i,category,industry,old?'hard':'easy',old?'verified':'pending',old?1:0);
    insertCase.run('c'+i,old?'历史标题':'案例 '+i,old?'独特简介':'普通案例简介','published',i,category,industry,old?'hard':'easy',old?'verified':'pending');
    insertMedia.run('m'+i,'alice','unused.webp','image/webp',100,i);
+   db.prepare('INSERT INTO files(id,owner_id,storage_key,name,purpose,mime_type,size,created_at) VALUES(?,?,?,?,?,?,?,?)').run('f'+i,'alice','unused.md',old?'历史资料.md':'资料 '+i+'.md',old?'agent':'reference','text/markdown',100,i);
+   db.prepare('INSERT INTO requirement_files(requirement_id,file_id) VALUES(?,?)').run('r'+i,'f'+i);
    db.prepare('INSERT INTO requirement_media(requirement_id,media_id,sort_order) VALUES(?,?,?)').run('r'+i,'m'+i,0);
    db.prepare('INSERT INTO requirement_tags(requirement_id,tag_id) VALUES(?,?)').run('r'+i,'rare-tag');
    db.prepare('INSERT INTO case_tags(case_id,tag_id) VALUES(?,?)').run('c'+i,'rare-tag');
   }
+  db.prepare('INSERT INTO files(id,owner_id,storage_key,name,purpose,mime_type,size,created_at) VALUES(?,?,?,?,?,?,?,?)').run('bob-file','bob','private.md','机密资料.md','other','text/markdown',100,300);
   insertReq.run('bob-only','bob','机密需求','不可泄露的内容',300,null,'保密行业','easy','pending',0);
   insertCase.run('draft','秘密草稿','未公开的案例','draft',400,null,'秘密行业','easy','pending');
   // Equal timestamps exercise the stable ID tiebreaker across multiple pages.
@@ -52,7 +55,7 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
    const first=await get(url+joiner+'page=1&pageSize=100');assert.equal(first.total,total);assert.equal(first.pageSize,100);assert.equal(first.page,1);
    if(total){const last=await get(url+joiner+'page=3&pageSize=100');assert.equal(last.items.length,total-200);assert.equal(last.total,total);if(lastId)assert.equal(last.items.at(-1).id,lastId);}
   }
-  const mine=await get('/requirements?page=11&pageSize=20','alice');assert.equal(mine.total,205);assert.equal(mine.items.length,5);assert.equal(mine.items.at(-1).id,'r0');assert.equal(mine.items.at(-1).images[0].id,'m0');assert.equal(mine.items.at(-1).tags[0].id,'rare-tag');
+  const mine=await get('/requirements?page=11&pageSize=20','alice');assert.equal(mine.total,205);assert.equal(mine.items.length,5);assert.equal(mine.items.at(-1).id,'r0');assert.equal(mine.items.at(-1).images[0].id,'m0');assert.equal(mine.items.at(-1).tags[0].id,'rare-tag');assert.equal(mine.items.at(-1).files[0].id,'f0');
   const defaults=await get('/cases?pageSize=1');assert.equal(defaults.page,1);assert.equal(defaults.items.length,1);assert.equal((await get('/cases?page=1')).pageSize,20);
  });
  await t.test('all filters run before pagination, include deep subcategories and industry search',async()=>{
@@ -76,7 +79,7 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
   for(const url of ['/requirements?scope=all&page=2','/requirements/facets?scope=all','/cases?scope=all&page=2','/cases/facets?scope=all','/media?page=2','/users?page=2'])await get(url,'bob',403);
  });
  await t.test('strict query validation for every list and invalid scopes/filters',async()=>{
-  for(const url of ['/cases','/requirements','/media','/users'])for(const q of ['page=0','page=-1','page=1.5','page=1e2','page=abc','page=','page=1000001','page=1&page=2','pageSize=101','pageSize=0','pageSize=','sort=unknown','pageSize=2&pageSize=3','unexpected=1'])await get(url+'?'+q,'admin',400);
+  for(const url of ['/cases','/requirements','/media','/users','/files'])for(const q of ['page=0','page=-1','page=1.5','page=1e2','page=abc','page=','page=1000001','page=1&page=2','pageSize=101','pageSize=0','pageSize=','sort=unknown','pageSize=2&pageSize=3','unexpected=1'])await get(url+'?'+q,'admin',400);
   for(const q of ['scope=bad','difficulty=extreme','implementationStatus=bad','tagIds=a,a','tagIds=','status=unknown'])await get('/cases?page=1&'+q,'admin',400);
   for(const q of ['scope=bad','consent=maybe','status=unknown'])await get('/requirements?page=1&'+q,'admin',400);
  });
@@ -92,6 +95,16 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
   db.prepare("UPDATE users SET status='disabled' WHERE id='extra001'").run();
   assert.equal((await get('/users/facets')).activeSupers,1);
   await get('/users/facets','bob',403);await get('/users/facets?unexpected=1','admin',400);
+ });
+
+ await t.test('files paginate all owned uploads with literal search and purpose filters',async()=>{
+  const legacy=await get('/files','alice');assert.ok(Array.isArray(legacy));assert.equal(legacy.length,200);
+  const last=await get('/files?page=11&pageSize=20','alice');assert.equal(last.total,205);assert.equal(last.items.length,5);assert.equal(last.items.at(-1).id,'f0');assert.equal(last.items.at(-1).url,'/api/files/f0/download');
+  const found=await get('/files?page=1&q='+encodeURIComponent('历史')+'&purpose=agent','alice');assert.equal(found.total,1);assert.equal(found.items[0].id,'f0');
+  assert.equal((await get('/files?page=1&q='+encodeURIComponent('历史'),'bob')).total,0);
+  const bob=await get('/files?page=1','bob');assert.equal(bob.total,1);assert.equal(bob.items[0].id,'bob-file');
+  assert.equal((await get('/files?scope=all&page=1')).total,206);assert.equal((await get('/files?scope=all&page=3&pageSize=100')).items.length,6);
+  await get('/files?scope=all&page=2','alice',403);await get('/files?scope=unknown','alice',400);await get('/files?purpose=unknown&page=1','alice',400);
  });
 
 });
