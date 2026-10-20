@@ -10,3 +10,5 @@
 - Impeccable 检测器仅报告现有提交方式 tab 的 border-b-2 和现有首页橙色 hero 的灰色文字，不属于本次分页变更；保持原视觉。
 
 截图：同目录 `catalog-*`、`requirements-*`、`mine-*`、`media-*`、`users-*`、`cases-admin-*`。未做真实手机触控或辅助阅读器测试；需求/用户原有宽表保留容器内横向滚动。
+
+更新到 `bc37bf8` 后重新执行 `npm run typecheck`、`npm run build`、`npm test`，全部通过（32 tests）。保留 #17 用户权限逻辑，将超级管理员计数改为全量 SQL count；新增“两名超级管理员均在第一页之外”的回归。刷新页面后复验用户桌面/390px 末页，最后超级管理员操作保持禁用，截图已更新。

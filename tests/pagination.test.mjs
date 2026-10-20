@@ -16,7 +16,7 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
  const child=spawn(process.execPath,['--import','tsx','apps/api/src/server.ts'],{env:{...process.env,PORT:String(port),DATABASE_URL:join(folder,'test.db'),STORAGE_DIR:join(folder,'uploads'),SESSION_SECRET:'pagination-test-only'},stdio:['ignore','pipe','pipe']});
  let logs='';child.stdout.on('data',x=>{logs+=x;});child.stderr.on('data',x=>{logs+=x;});
  let db;
- t.after(async()=>{child.kill('SIGTERM');await once(child,'exit');db?.close();rmSync(folder,{recursive:true,force:true});});
+ t.after(async()=>{if(child.exitCode===null&&child.signalCode===null){const exited=once(child,'exit');child.kill('SIGTERM');await exited;}db?.close();rmSync(folder,{recursive:true,force:true});});
  for(let i=0;i<200;i++){if(logs.includes('jack-case API'))break;if(child.exitCode!==null)throw Error(logs);await new Promise(resolve=>setTimeout(resolve,50));}
  assert.ok(logs.includes('jack-case API'),logs);
  db=new Database(join(folder,'test.db'));
@@ -85,4 +85,13 @@ test('server pagination, whole-dataset filters, batching and scope isolation',as
   assert.equal((await get('/cases?page=1&sort=oldest','alice')).items[0].id,'c0');
   const stats=await get('/stats');assert.equal(stats.requirements,206);assert.equal(stats.cases,206);assert.equal(stats.users,208);assert.equal(stats.pending,206);
  });
+ await t.test('user safety summary counts super admins beyond the current page',async()=>{
+  db.prepare("UPDATE users SET role='super_admin' WHERE id IN ('extra000','extra001')").run();
+  const first=await get('/users?page=1&pageSize=100');assert.equal(first.items.filter(x=>x.role==='super_admin').length,0);
+  assert.equal((await get('/users/facets')).activeSupers,2);
+  db.prepare("UPDATE users SET status='disabled' WHERE id='extra001'").run();
+  assert.equal((await get('/users/facets')).activeSupers,1);
+  await get('/users/facets','bob',403);await get('/users/facets?unexpected=1','admin',400);
+ });
+
 });
