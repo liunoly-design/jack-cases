@@ -6,7 +6,9 @@ import os from 'node:os';import fs from 'node:fs';import path from 'node:path';
 import bcrypt from 'bcryptjs';import sharp from 'sharp';import { eq,and,desc,isNull,inArray,sql,count } from 'drizzle-orm';import { z } from 'zod';
 import {db} from './db.js';import {users,sessions,apiKeys,requirements,cases,casePrompts,media,requirementMedia,caseMedia,categories,reviews,auditLogs,caseEvents,tags,requirementTags,caseTags,files,requirementFiles,caseFiles} from './schema.js';
 import {registerLists} from './lists.js';
-const app=new Koa();app.proxy=true;const r=new Router({prefix:'/api'});
+import {encryptKey,decryptKey,keyStorageReady,scopes,agentScopes,taxonomyScopes,requiredScope} from './key-security.js';
+import {proxyBoundary,authRateLimit} from './auth-rate-limit.js';
+const app=new Koa();app.proxy=true;app.use(proxyBoundary);const r=new Router({prefix:'/api'});
 const deployedCommitFile=process.env.DEPLOYED_COMMIT_FILE;
 r.get('/health',ctx=>{let commit:string|null=null;if(deployedCommitFile){try{commit=fs.readFileSync(deployedCommitFile,'utf8').trim()||null;}catch{}}ctx.body={ok:true,commit};});
 const origin=process.env.APP_ORIGIN??'http://localhost:5173';app.use(cors({origin,credentials:true}));
@@ -16,23 +18,105 @@ app.use(async(ctx,next)=>{try{await next();if(ctx.status===404)ctx.body={error:'
 app.use(async(ctx,next)=>{const limit=ctx.path==='/api/media'?(Number(process.env.MAX_IMAGE_MB)||10)*1024*1024:20*1024*1024;const temp=fs.mkdtempSync(path.join(os.tmpdir(),'medical-upload-'));try{await koaBody({multipart:true,formidable:{uploadDir:temp,maxFileSize:limit,maxTotalFileSize:limit,maxFiles:1},jsonLimit:'1mb'})(ctx,async()=>{const uploads=Object.values((ctx.request as any).files??{}).flat() as {size:number}[];if(uploads.length>1||uploads.reduce((n,f)=>n+f.size,0)>limit)bad('Upload limit exceeded',413);await next();});}finally{fs.rmSync(temp,{recursive:true,force:true});}});
 const now=()=>Math.floor(Date.now()/1000),id=()=>randomUUID(),hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 function bad(message:string,status=400):never{throw Object.assign(new Error(message),{status});}
-type Actor={id:string;role:string;email:string};const manager=(a:Actor)=>['admin','super_admin','reviewer'].includes(a.role);
-async function actor(ctx:Koa.Context):Promise<Actor>{let userId='';const authorization=ctx.get('authorization');if(authorization.startsWith('Bearer ')){const token=authorization.slice(7);const key=db.select().from(apiKeys).where(and(eq(apiKeys.hash,hash(token)),isNull(apiKeys.revokedAt))).get();if(key){userId=key.userId;db.update(apiKeys).set({lastUsedAt:now()}).where(eq(apiKeys.id,key.id)).run();}}else{const session=ctx.cookies.get('jack_session',{signed:true});if(session){const entry=db.select().from(sessions).where(eq(sessions.idHash,hash(session))).get();if(entry && entry.expiresAt>now())userId=entry.userId;}}const u=userId?db.select().from(users).where(eq(users.id,userId)).get():null;if(!u||u.status!=='active')bad('Unauthorized',401);return {id:u.id,role:u.role,email:u.email};}
+type Actor={id:string;role:string;email:string;scopes?:string[]};
+// Scoped Agents always use owner/public access even when their account is an administrator.
+const manager=(a:Actor)=>!a.scopes&&['admin','super_admin','reviewer'].includes(a.role);
+async function actor(ctx:Koa.Context):Promise<Actor>{
+  let userId='',grants:string[]|undefined;
+  const authorization=ctx.get('authorization');
+  if(authorization){
+    if(!authorization.startsWith('Bearer '))bad('Unauthorized',401);
+    const key=db.select().from(apiKeys).where(and(eq(apiKeys.hash,hash(authorization.slice(7))),isNull(apiKeys.revokedAt))).get();
+    if(!key||key.expiresAt!==null&&key.expiresAt<=now())bad('Unauthorized',401);
+    userId=key.userId;
+    if(key.scopes!==null){
+      try{grants=JSON.parse(key.scopes);if(!Array.isArray(grants)||!grants.every(scope=>typeof scope==='string'))bad('Unauthorized',401);}catch{bad('Unauthorized',401);}
+      const required=requiredScope(ctx.method,ctx.path,ctx.query);
+      if(required===null||required&&!grants!.includes(required))bad('API Key scope does not allow this action',403);
+    }
+    db.update(apiKeys).set({lastUsedAt:now()}).where(eq(apiKeys.id,key.id)).run();
+  }else{
+    const session=ctx.cookies.get('jack_session',{signed:true});
+    if(session){const entry=db.select().from(sessions).where(eq(sessions.idHash,hash(session))).get();if(entry&&entry.expiresAt>now())userId=entry.userId;}
+  }
+  const u=userId?db.select().from(users).where(eq(users.id,userId)).get():null;
+  if(!u||u.status!=='active')bad('Unauthorized',401);
+  // Taxonomy is an explicit role AND scope grant, never a user-management grant.
+  if(grants?.includes('taxonomy:write')&&!['admin','super_admin'].includes(u.role))bad('Forbidden',403);
+  return {id:u.id,role:u.role,email:u.email,...(grants?{scopes:grants}:{})};
+}
+async function sessionActor(ctx:Koa.Context){
+  if(ctx.get('authorization'))bad('密钥管理需要浏览器登录会话，不能使用 Bearer Key',403);
+  ctx.set('Cache-Control','no-store');return actor(ctx);
+}
 const admin=(a:Actor)=>{if(!manager(a))bad('Forbidden',403);};
 const taxonomyEditor=(a:Actor)=>{if(!['admin','super_admin'].includes(a.role))bad('Forbidden',403);};
 const audit=(a:Actor,action:string,kind:string,item:string)=>db.insert(auditLogs).values({id:id(),actorId:a.id,action,resourceType:kind,resourceId:item,createdAt:now()}).run();
-const registerSchema=z.object({email:z.string().email(),password:z.string().min(6)});
-const issueKey=(userId:string,name='Default')=>{const secret='wk_'+randomBytes(32).toString('base64url');db.insert(apiKeys).values({id:id(),userId,name,prefix:secret.slice(0,12),hash:hash(secret),secretValue:secret,createdAt:now()}).run();return secret;};
+const registerSchema=z.object({email:z.string().trim().email().max(254),password:z.string().min(6).refine(value=>Buffer.byteLength(value,'utf8')<=72,'Password must be at most 72 UTF-8 bytes')});
+const keyInput=z.object({scopes:z.array(z.enum(scopes)).min(1).max(scopes.length).default(agentScopes as typeof scopes[number][]),expiresInDays:z.number().int().min(1).max(90).default(30)});
+function keyRecord(userId:string,name:string,grants:string[],days:number){
+  const secret='wk_'+randomBytes(32).toString('base64url'),keyId=id();
+  return {secret,record:{id:keyId,userId,name,prefix:secret.slice(0,12),hash:hash(secret),secretEncrypted:encryptKey(secret,keyId),scopes:JSON.stringify([...new Set(grants)]),expiresAt:now()+days*86400,createdAt:now()}};
+}
+const issueKey=(userId:string)=>{const {secret,record}=keyRecord(userId,'Agent skill',agentScopes,30);db.insert(apiKeys).values(record).run();return secret;};
 const sessionCookie=(ctx:Koa.Context,userId:string)=>{const secret=randomBytes(32).toString('base64url');db.insert(sessions).values({idHash:hash(secret),userId,expiresAt:now()+604800}).run();ctx.cookies.set('jack_session',secret,{httpOnly:true,sameSite:'lax',signed:true,secure:process.env.NODE_ENV==='production',maxAge:604800000});};
 const safeUser=(u:any)=>({id:u.id,email:u.email,role:u.role,status:u.status,createdAt:u.createdAt});
 registerLists(r,actor,admin);
-r.post('/auth/register',ctx=>{const d=registerSchema.parse(ctx.request.body);if(db.select().from(users).where(eq(users.email,d.email.toLowerCase())).get())bad('Email already registered',409);const userId=id();db.insert(users).values({id:userId,email:d.email.toLowerCase(),passwordHash:bcrypt.hashSync(d.password,12),createdAt:now()}).run();sessionCookie(ctx,userId);ctx.status=201;ctx.body={user:{id:userId,email:d.email.toLowerCase(),role:'student'},apiKey:issueKey(userId)};});
-r.post('/auth/login',ctx=>{const d=registerSchema.parse(ctx.request.body);const u=db.select().from(users).where(eq(users.email,d.email.toLowerCase())).get();if(!u||!bcrypt.compareSync(d.password,u.passwordHash)||u.status!=='active')bad('Invalid credentials',401);sessionCookie(ctx,u.id);ctx.body={user:safeUser(u)};});
+// A fixed cost-12 dummy hash makes unknown-user login follow the same bcrypt work path.
+const dummyHash='$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW';
+r.post('/auth/register',async ctx=>{
+  ctx.set('Cache-Control','no-store');authRateLimit(ctx);if(process.env.NODE_ENV==='production'&&!ctx.secure)bad('HTTPS required for authentication',400);const d=registerSchema.parse(ctx.request.body),email=d.email.toLowerCase();
+  const passwordHash=await bcrypt.hash(d.password,12);
+  if(db.select().from(users).where(eq(users.email,email)).get())bad('Email already registered',409);
+  const userId=id();
+  // No awaits between duplicate check and insert; concurrent registrations cannot race it.
+  db.insert(users).values({id:userId,email,passwordHash,createdAt:now()}).run();sessionCookie(ctx,userId);
+  ctx.status=201;ctx.body={user:{id:userId,email,role:'student'},apiKey:keyStorageReady?issueKey(userId):null};
+});
+r.post('/auth/login',async ctx=>{
+  ctx.set('Cache-Control','no-store');authRateLimit(ctx);if(process.env.NODE_ENV==='production'&&!ctx.secure)bad('HTTPS required for authentication',400);const d=registerSchema.parse(ctx.request.body);
+  const u=db.select().from(users).where(eq(users.email,d.email.toLowerCase())).get();
+  const valid=await bcrypt.compare(d.password,u?.passwordHash??dummyHash);
+  // Re-read after asynchronous password work so a disabled user cannot acquire a new session.
+  const current=u?db.select().from(users).where(eq(users.id,u.id)).get():null;
+  if(!valid||!current||current.status!=='active'||current.passwordHash!==u?.passwordHash)bad('Invalid credentials',401);
+  sessionCookie(ctx,current.id);ctx.body={user:safeUser(current)};
+});
 r.post('/auth/logout',async ctx=>{const s=ctx.cookies.get('jack_session',{signed:true});if(s)db.delete(sessions).where(eq(sessions.idHash,hash(s))).run();ctx.cookies.set('jack_session','',{maxAge:0});ctx.body={ok:true};});
 r.get('/me',async ctx=>{ctx.body=await actor(ctx);});
-r.get('/keys',async ctx=>{const a=await actor(ctx);ctx.body=db.select({id:apiKeys.id,name:apiKeys.name,prefix:apiKeys.prefix,createdAt:apiKeys.createdAt,revokedAt:apiKeys.revokedAt,lastUsedAt:apiKeys.lastUsedAt,secretValue:apiKeys.secretValue}).from(apiKeys).where(eq(apiKeys.userId,a.id)).all().map(k=>({...k,secretValue:k.revokedAt?null:k.secretValue}));});
-r.post('/keys/rotate',async ctx=>{const a=await actor(ctx);const secret='wk_'+randomBytes(32).toString('base64url');const createdAt=now();db.transaction(tx=>{tx.update(apiKeys).set({revokedAt:createdAt}).where(and(eq(apiKeys.userId,a.id),isNull(apiKeys.revokedAt))).run();tx.insert(apiKeys).values({id:id(),userId:a.id,name:'Agent skill',prefix:secret.slice(0,12),hash:hash(secret),secretValue:secret,createdAt}).run();});ctx.status=201;ctx.body={apiKey:secret};});
-r.delete('/keys/:id',async ctx=>{const a=await actor(ctx);const k=db.select().from(apiKeys).where(eq(apiKeys.id,ctx.params.id)).get();if(!k||(k.userId!==a.id&&!manager(a)))bad('Not found',404);db.update(apiKeys).set({revokedAt:now()}).where(eq(apiKeys.id,k.id)).run();ctx.body={ok:true};});
+r.get('/keys',async ctx=>{
+  const a=await sessionActor(ctx);
+  ctx.body=db.select().from(apiKeys).where(eq(apiKeys.userId,a.id)).all().map(k=>({
+    id:k.id,name:k.name,prefix:k.prefix,createdAt:k.createdAt,revokedAt:k.revokedAt,lastUsedAt:k.lastUsedAt,
+    scopes:k.scopes===null?null:JSON.parse(k.scopes),expiresAt:k.expiresAt,legacy:k.scopes===null,storageReady:keyStorageReady,
+    secretValue:!k.revokedAt&&(!k.expiresAt||k.expiresAt>now())&&k.secretEncrypted?decryptKey(k.secretEncrypted,k.id):null
+  }));
+});
+r.post('/keys/rotate',async ctx=>{
+  const a=await sessionActor(ctx),d=keyInput.parse(ctx.request.body);
+  if(d.scopes.includes('taxonomy:write'))taxonomyEditor(a);
+  const {secret,record}=keyRecord(a.id,'Agent skill',d.scopes,d.expiresInDays);
+  db.transaction(tx=>{
+    tx.update(apiKeys).set({revokedAt:now(),secretValue:null,secretEncrypted:null}).where(and(eq(apiKeys.userId,a.id),isNull(apiKeys.revokedAt))).run();
+    tx.insert(apiKeys).values(record).run();
+  });ctx.status=201;ctx.body={apiKey:secret,scopes:d.scopes,expiresAt:record.expiresAt};
+});
+// Dedicated taxonomy key does not replace the ordinary Agent key. Only cookie-authenticated admins can create it.
+r.post('/keys/taxonomy',async ctx=>{
+  const a=await sessionActor(ctx);taxonomyEditor(a);
+  const d=z.object({expiresInDays:z.number().int().min(1).max(90).default(30)}).parse(ctx.request.body);
+  const {secret,record}=keyRecord(a.id,'Taxonomy skill',taxonomyScopes,d.expiresInDays);
+  db.transaction(tx=>{
+    const previous=tx.select().from(apiKeys).where(and(eq(apiKeys.userId,a.id),eq(apiKeys.name,'Taxonomy skill'),isNull(apiKeys.revokedAt))).all();
+    for(const k of previous)tx.update(apiKeys).set({revokedAt:now(),secretValue:null,secretEncrypted:null}).where(eq(apiKeys.id,k.id)).run();
+    tx.insert(apiKeys).values(record).run();
+  });ctx.status=201;ctx.body={apiKey:secret,scopes:taxonomyScopes,expiresAt:record.expiresAt};
+});
+r.delete('/keys/:id',async ctx=>{
+  const a=await sessionActor(ctx),k=db.select().from(apiKeys).where(eq(apiKeys.id,ctx.params.id)).get();
+  if(!k||(k.userId!==a.id&&!manager(a)))bad('Not found',404);
+  db.update(apiKeys).set({revokedAt:now(),secretValue:null,secretEncrypted:null}).where(eq(apiKeys.id,k.id)).run();ctx.body={ok:true};
+});
 r.get('/admin/skill',async ctx=>{const a=await actor(ctx);taxonomyEditor(a);ctx.body={version:1,title:'医疗大健康需求平台管理技能',content:`# 医疗大健康需求平台管理技能\n\n使用医疗大健康需求平台 API 维护分类和标签。\n\n- API 地址：${origin}/api\n- 认证：每个请求使用 Authorization: Bearer <管理员自己的 API Key>；不要把密钥分享给他人或写入代码仓库。\n- 分类：GET /categories；POST /categories；PATCH/DELETE /categories/{id}。字段：name、slug、parentId、sortOrder。\n- 标签：GET /tags?scope=all；POST /tags；PATCH/DELETE /tags/{id}。字段：name、slug、group、color、active、sortOrder。\n- 删除被使用的分类会返回 409；仍被需求或案例引用的标签会停用以保留历史记录。\n- 遇到 401/403 时停止操作并请管理员检查账号角色或密钥；遇到 409 时说明引用冲突，勿尝试绕过。\n- 写操作由服务端校验权限并记录审计日志；不要批量覆盖未知字段。`};});
 const categoryInput=z.object({name:z.string().trim().min(1).max(80),slug:z.string().regex(/^[a-z0-9-]{1,80}$/),parentId:z.string().nullable().optional(),sortOrder:z.number().int().default(0)});
 function categorySlugAvailable(slug:string,excludeId?:string){const found=db.select().from(categories).where(eq(categories.slug,slug)).get();if(found&&found.id!==excludeId)bad('Category slug already exists',409);}
@@ -195,4 +279,4 @@ r.patch('/users/:id',async ctx=>{
 r.get('/stats',async ctx=>{const a=await actor(ctx);admin(a);ctx.body={users:db.select({total:count()}).from(users).get()!.total,requirements:db.select({total:count()}).from(requirements).get()!.total,cases:db.select({total:count()}).from(cases).get()!.total,pending:db.select({total:count()}).from(requirements).where(eq(requirements.status,'submitted')).get()!.total};});
 r.get('/audit-logs',async ctx=>{const a=await actor(ctx);admin(a);ctx.body=db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(200).all();});
 app.use(r.routes()).use(r.allowedMethods());
-const port=Number(process.env.PORT??3001);app.listen(port,'127.0.0.1',()=>console.log(`jack-case API http://localhost:${port}`));
+const port=Number(process.env.PORT??3001);app.listen(port,process.env.HOST??'127.0.0.1',()=>console.log(`jack-case API http://localhost:${port}`));

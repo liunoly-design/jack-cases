@@ -22,6 +22,13 @@
       "when": 1792513174719,
       "tag": "0002_requirement_covers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792513877425,
+      "tag": "0003_agent_key_security",
+      "breakpoints": true
     }
   ]
 }

@@ -9,6 +9,9 @@ Group=jack-cases
 WorkingDirectory=/data/jack-cases/current
 Environment=NODE_ENV=production
 Environment=PORT=3001
+Environment=HOST=127.0.0.1
+# OpenResty proxy_pass uses this exact peer; EnvironmentFile may override for another topology.
+Environment=TRUSTED_PROXY_IPS=127.0.0.1
 Environment=DATABASE_URL=/data/jack-cases/shared/jack-case.db
 Environment=STORAGE_DIR=/data/jack-cases/shared/uploads
 Environment=APP_ORIGIN=https://jack-cases.minapp.xin
