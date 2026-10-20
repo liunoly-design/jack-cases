@@ -12,9 +12,8 @@ export async function proxyBoundary(ctx:Koa.Context,next:Koa.Next){
     if(chain.length<=20&&chain.every(ip=>isIP(ip))){
       for(let i=chain.length-1;i>=0&&trusted.has(client);i--)client=chain[i];
     }
-  }else{
-    delete ctx.req.headers['x-forwarded-proto'];
   }
+  if(!trusted.has(peer)||!['http','https'].includes(ctx.get('x-forwarded-proto')))delete ctx.req.headers['x-forwarded-proto'];
   // Sanitize before Koa reads forwarded properties (including secure-cookie protocol).
   ctx.req.headers['x-forwarded-for']=client;
   delete ctx.req.headers['x-forwarded-host'];
@@ -24,13 +23,20 @@ export async function proxyBoundary(ctx:Koa.Context,next:Koa.Next){
 type Bucket={count:number;reset:number};
 const buckets=new Map<string,Bucket>();
 const windowMs=15*60*1000;
+function ipLimit(name:string,fallback:number){
+  const value=process.env[name];if(value===undefined||value==='')return fallback;
+  if(!/^[1-9][0-9]*$/.test(value)||Number(value)>100000)throw Error(name+' must be an integer from 1 to 100000');
+  return Number(value);
+}
+// Shared hospital/workshop NATs need headroom; per-account limits remain narrow.
+const loginIpLimit=ipLimit('AUTH_LOGIN_IP_LIMIT',200),registerIpLimit=ipLimit('AUTH_REGISTER_IP_LIMIT',50);
 export function authRateLimit(ctx:Koa.Context){
   const time=Date.now(),register=ctx.path.endsWith('/register');
   // Count successes too; never reset on a successful credential attempt.
   const rawEmail=(ctx.request.body as {email?:unknown})?.email;
   const email=typeof rawEmail==='string'?rawEmail.trim().toLowerCase():'';
   const rules:[[string,number],[string,number]]=[
-    [`${register?'register':'login'}:ip:${ctx.state.clientIp}`,register?5:20],
+    [`${register?'register':'login'}:ip:${ctx.state.clientIp}`,register?registerIpLimit:loginIpLimit],
     [`${register?'register':'login'}:email:${keyHash(email)}`,register?5:10]
   ];
   for(const [key] of rules){const bucket=buckets.get(key);if(bucket&&bucket.reset<=time)buckets.delete(key);}

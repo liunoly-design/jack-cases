@@ -8,6 +8,7 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {randomBytes,createHash} from 'node:crypto';
 import Database from 'better-sqlite3';
+import bcrypt from 'bcryptjs';
 const digest=s=>createHash('sha256').update(s).digest('hex');
 const defaultScopes=['requirements:read','requirements:write','cases:read','taxonomy:read','media:read','media:write'];
 async function harness(t){
@@ -22,8 +23,9 @@ async function harness(t){
   sql=new Database(overrides.DATABASE_URL??database);return sql;
  }
  const request=async(route,{token,cookie,headers={},method='GET',body}={})=>{
-  const response=await fetch(`http://127.0.0.1:${port}/api${route}`,{method,headers:{...(token?{Authorization:`Bearer ${token}`} : {}),...(cookie?{Cookie:cookie}:{}),...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});
-  return {status:response.status,body:await response.json(),retry:response.headers.get('retry-after'),cache:response.headers.get('cache-control'),cookie:response.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ')};
+  const response=await fetch(`http://127.0.0.1:${port}/api${route}`,{method,headers:{...(token?{Authorization:`Bearer ${token}`} : {}),...(cookie?{Cookie:cookie}:{}),...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{}),...headers},body:body?(body instanceof FormData?body:JSON.stringify(body)):undefined});
+  const text=await response.text();let data;try{data=JSON.parse(text);}catch{data=text;}
+  return {status:response.status,body:data,retry:response.headers.get('retry-after'),cache:response.headers.get('cache-control'),setCookies:response.headers.getSetCookie(),cookie:response.headers.getSetCookie().map(s=>s.split(';')[0]).join('; ')};
  };
  t.after(async()=>{await stop();rmSync(dir,{recursive:true,force:true});});
  await start();return {dir,database,master,start,stop,request,get sql(){return sql;}};
@@ -105,17 +107,76 @@ test('auth limits count success/failure and ignore forged forwarding headers by 
  // Disabled + wrong attempts above count toward the same email bucket.
  for(let i=0;i<8;i++)assert.equal((await call('/auth/login',{method:'POST',body:{email:'login@example.test',password:'test-password'}})).status,200);
  const blocked=await call('/auth/login',{method:'POST',body:{email:'login@example.test',password:'test-password'}});assert.equal(blocked.status,429);assert.ok(Number(blocked.retry)>0);
- await h.stop();await h.start();
+ await h.stop();await h.start({AUTH_LOGIN_IP_LIMIT:'20'});
  for(let i=0;i<20;i++)assert.equal((await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':`192.0.2.${i+1}`},body:{email:`missing${i}@example.test`,password:'test-password'}})).status,401);
  const ipBlocked=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':'198.51.100.99'},body:{email:'new@example.test',password:'test-password'}});assert.equal(ipBlocked.status,429);assert.ok(Number(ipBlocked.retry)>0);
- await h.stop();await h.start();
+ await h.stop();await h.start({AUTH_REGISTER_IP_LIMIT:'5'});
  for(let i=0;i<5;i++)assert.equal((await call('/auth/register',{method:'POST',body:{email:'login@example.test',password:'test-password'}})).status,409);
  const registerBlocked=await call('/auth/register',{method:'POST',body:{email:'new@example.test',password:'test-password'}});assert.equal(registerBlocked.status,429);assert.ok(Number(registerBlocked.retry)>0);
 });
 test('only explicit trusted proxy peers can supply client IP; rightmost untrusted hop wins', {timeout:60000},async t=>{
- const h=await harness(t),call=h.request;await h.stop();await h.start({TRUSTED_PROXY_IPS:'127.0.0.1'});
+ const h=await harness(t),call=h.request;await h.stop();await h.start({TRUSTED_PROXY_IPS:'127.0.0.1',AUTH_LOGIN_IP_LIMIT:'20'});
  // A proxy appended real address to attacker-supplied left-side values: varying the left side cannot bypass limits.
  for(let i=0;i<20;i++)assert.equal((await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':`192.0.2.${i+1}, 198.51.100.10`},body:{email:`unknown${i}@example.test`,password:'test-password'}})).status,401);
  assert.equal((await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':'192.0.2.100, 198.51.100.10'},body:{email:'another@example.test',password:'test-password'}})).status,429);
  assert.equal((await call('/auth/login',{method:'POST',headers:{'X-Forwarded-For':'198.51.100.11'},body:{email:'another@example.test',password:'test-password'}})).status,401,'different actual proxy client has separate IP bucket');
+});
+
+test('medical files and Markdown downloads obey scoped ownership and public approval', {timeout:60000},async t=>{
+ const h=await harness(t),call=h.request;
+ const signup=async email=>{const result=await call('/auth/register',{method:'POST',body:{email,password:'test-password'}});assert.equal(result.status,201);return {...result.body,cookie:result.cookie};};
+ const owner=await signup('files-owner@example.test'),admin=await signup('files-admin@example.test'),other=await signup('files-other@example.test');
+ h.sql.prepare("UPDATE users SET role='admin' WHERE id=?").run(admin.user.id);
+ const form=new FormData();form.append('file',new Blob(['# Private attachment']),'private.md');
+ const upload=await call('/files',{token:owner.apiKey,method:'POST',body:form});assert.equal(upload.status,201);const fileId=upload.body.id;
+ assert.equal((await call('/files',{token:owner.apiKey})).body.length,1);
+ assert.equal((await call('/files?scope=all',{token:admin.apiKey})).status,403);
+ for(const token of [admin.apiKey,other.apiKey])assert.equal((await call(`/files/${fileId}/download`,{token})).status,403);
+ assert.equal((await call(`/files/${fileId}/download`,{token:owner.apiKey})).body,'# Private attachment');
+ const created=await call('/requirements',{token:owner.apiKey,method:'POST',body:{title:'Scoped medical materials',content:'# Private requirement',shareConsent:true,fileIds:[fileId],contentVersion:'v2.0'}});assert.equal(created.status,201);
+ const reqId=created.body.id;assert.match(created.body.requirementCode,/^MED-REQ-/);assert.equal(created.body.contentVersion,'v2.0');
+ assert.equal((await call(`/requirements/${reqId}/download`,{token:owner.apiKey})).body,'# Private requirement');
+ assert.match((await call(`/requirements/${reqId}/download?format=ai`,{token:owner.apiKey})).body,/v2.0/);
+ assert.equal((await call(`/requirements/${reqId}/download`,{token:admin.apiKey})).status,404);assert.equal((await call(`/requirements/${reqId}/download`,{cookie:admin.cookie})).status,200);
+ assert.equal((await call(`/requirements/${reqId}`,{token:owner.apiKey,method:'PATCH',body:{content:'# Private requirement revised'}})).status,200);
+ assert.equal((await call(`/requirements/${reqId}`,{token:owner.apiKey})).body.contentVersion,'v2.1');
+ assert.equal((await call(`/requirements/${reqId}/review`,{token:admin.apiKey,method:'POST',body:{decision:'reject'}})).status,403);
+ const reviewed=await call(`/requirements/${reqId}/review`,{cookie:admin.cookie,method:'POST',body:{decision:'approve',summary:'Public approved summary',requirementPrompt:'# Public material',approvedFileIds:[fileId]}});assert.equal(reviewed.status,200);const caseId=reviewed.body.caseId;
+ assert.match((await call(`/cases/${caseId}/download`,{token:other.apiKey})).body,/# Public material/);
+ assert.ok(!(await call(`/cases/${caseId}/download`,{token:other.apiKey})).body.includes('# Private requirement'));
+ assert.equal((await call(`/files/${fileId}/download`,{token:other.apiKey})).status,200);
+ assert.equal((await call(`/cases/${caseId}/files`,{token:admin.apiKey,method:'PUT',body:{files:[]}})).status,403);
+ const tax=await call('/keys/taxonomy',{cookie:admin.cookie,method:'POST',body:{}});assert.equal((await call(`/files/${fileId}/download`,{token:tax.body.apiKey})).status,403);
+ h.sql.prepare("UPDATE users SET role='student' WHERE id=?").run(admin.user.id);assert.equal((await call('/categories',{token:tax.body.apiKey,method:'POST',body:{name:'No role',slug:'no-role'}})).status,403);h.sql.prepare("UPDATE users SET role='admin' WHERE id=?").run(admin.user.id);
+ assert.equal((await call(`/cases/${caseId}/status`,{cookie:admin.cookie,method:'POST',body:{status:'archived'}})).status,200);
+ assert.equal((await call(`/files/${fileId}/download`,{token:other.apiKey})).status,403);assert.equal((await call(`/cases/${caseId}/download`,{token:other.apiKey})).status,404);
+ const readonly=await call('/keys/rotate',{cookie:owner.cookie,method:'POST',body:{scopes:['requirements:read']}});
+ assert.equal((await call(`/files/${fileId}/download`,{token:readonly.body.apiKey})).status,403);
+ assert.equal((await call(`/files/${fileId}/download`,{token:owner.apiKey})).status,401);
+ const deniedForm=new FormData();deniedForm.append('file',new Blob(['No write']),'denied.txt');assert.equal((await call('/files',{token:readonly.body.apiKey,method:'POST',body:deniedForm})).status,403);
+});
+
+test('production HTTPS proxy supports secure login, untrusted forwarding cannot spoof transport', {timeout:30000},async t=>{
+ const h=await harness(t),call=h.request;
+ const user=await call('/auth/register',{method:'POST',body:{email:'secure-proxy@example.test',password:'test-password'}});assert.equal(user.status,201);
+ await h.stop();await h.start({NODE_ENV:'production',TRUSTED_PROXY_IPS:'127.0.0.1'});
+ const secure=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-Proto':'https','X-Forwarded-For':'192.0.2.20'},body:{email:'secure-proxy@example.test',password:'test-password'}});
+ assert.equal(secure.status,200);assert.ok(secure.setCookies.some(value=>/; secure/i.test(value)));
+ assert.equal((await call('/me',{cookie:secure.cookie,headers:{'X-Forwarded-Proto':'https'}})).status,200);
+ assert.equal((await call('/auth/register',{method:'POST',headers:{'X-Forwarded-Proto':'https'},body:{email:'new-proxy@example.test',password:'test-password'}})).status,201);
+ await h.stop();await h.start({NODE_ENV:'production',TRUSTED_PROXY_IPS:''});
+ const spoofed=await call('/auth/login',{method:'POST',headers:{'X-Forwarded-Proto':'https','X-Forwarded-For':'192.0.2.21'},body:{email:'secure-proxy@example.test',password:'test-password'}});
+ assert.equal(spoofed.status,400);assert.deepEqual(spoofed.setCookies,[]);assert.equal(spoofed.body.error,'HTTPS required for authentication');
+ const register=await call('/auth/register',{method:'POST',headers:{'X-Forwarded-Proto':'https'},body:{email:'no-transport@example.test',password:'test-password'}});assert.equal(register.status,400);assert.equal(h.sql.prepare("SELECT count(*) AS n FROM users WHERE email='no-transport@example.test'").get().n,0);
+});
+test('default IP quotas support a shared workshop while each account remains bounded', {timeout:30000},async t=>{
+ const h=await harness(t),call=h.request;
+ // More than the old five registrations and twenty logins, sharing a single real IP.
+ for(let i=0;i<6;i++)assert.equal((await call('/auth/register',{method:'POST',body:{email:`workshop${i}@example.test`,password:'test-password'}})).status,201);
+ const fastFixture=bcrypt.hashSync('test-password',4);h.sql.prepare('UPDATE users SET password_hash=?').run(fastFixture);
+ for(let i=0;i<25;i++)assert.equal((await call('/auth/login',{method:'POST',body:{email:`workshop${i%6}@example.test`,password:'test-password'}})).status,200);
+ // Five prior logins on account zero, then five failures consume its remaining quota.
+ for(let i=0;i<5;i++)assert.equal((await call('/auth/login',{method:'POST',body:{email:'workshop0@example.test',password:'wrong-password'}})).status,401);
+ const blocked=await call('/auth/login',{method:'POST',body:{email:'workshop0@example.test',password:'test-password'}});assert.equal(blocked.status,429);assert.ok(Number(blocked.retry)>0);
+ assert.equal((await call('/auth/login',{method:'POST',body:{email:'workshop1@example.test',password:'test-password'}})).status,200);
 });

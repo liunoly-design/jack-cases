@@ -62,7 +62,7 @@ const safeUser=(u:any)=>({id:u.id,email:u.email,role:u.role,status:u.status,crea
 // A fixed cost-12 dummy hash makes unknown-user login follow the same bcrypt work path.
 const dummyHash='$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW';
 r.post('/auth/register',async ctx=>{
-  ctx.set('Cache-Control','no-store');authRateLimit(ctx);const d=registerSchema.parse(ctx.request.body),email=d.email.toLowerCase();
+  ctx.set('Cache-Control','no-store');authRateLimit(ctx);if(process.env.NODE_ENV==='production'&&!ctx.secure)bad('HTTPS required for authentication',400);const d=registerSchema.parse(ctx.request.body),email=d.email.toLowerCase();
   const passwordHash=await bcrypt.hash(d.password,12);
   if(db.select().from(users).where(eq(users.email,email)).get())bad('Email already registered',409);
   const userId=id();
@@ -71,7 +71,7 @@ r.post('/auth/register',async ctx=>{
   ctx.status=201;ctx.body={user:{id:userId,email,role:'student'},apiKey:keyStorageReady?issueKey(userId):null};
 });
 r.post('/auth/login',async ctx=>{
-  ctx.set('Cache-Control','no-store');authRateLimit(ctx);const d=registerSchema.parse(ctx.request.body);
+  ctx.set('Cache-Control','no-store');authRateLimit(ctx);if(process.env.NODE_ENV==='production'&&!ctx.secure)bad('HTTPS required for authentication',400);const d=registerSchema.parse(ctx.request.body);
   const u=db.select().from(users).where(eq(users.email,d.email.toLowerCase())).get();
   const valid=await bcrypt.compare(d.password,u?.passwordHash??dummyHash);
   // Re-read after asynchronous password work so a disabled user cannot acquire a new session.

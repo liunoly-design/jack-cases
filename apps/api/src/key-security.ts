@@ -34,7 +34,7 @@ export function requiredScope(method:string,path:string,query:Record<string,unkn
     return method==='GET'?'requirements:read':['POST','PATCH'].includes(method)?'requirements:write':null;
   }
   if(/^\/api\/cases(\/|$)/.test(path))return query.scope!=='all'&&(method==='GET'||method==='POST'&&/\/copy-events$/.test(path))?'cases:read':null;
-  // Reserve the future files boundary without adding the medical-platform implementation.
-  if(/^\/api\/(media|files)(\/|$)/.test(path))return method==='POST'?'media:write':method==='GET'&&path!=='/api/media'&&path!=='/api/files'?'media:read':null;
+  // Files and legacy images share attachment grants; handlers still enforce ownership/public approval.
+  if(/^\/api\/(media|files)(\/|$)/.test(path))return method==='POST'?'media:write':method==='GET'&&path!=='/api/media'&&query.scope!=='all'?'media:read':null;
   return null; // Users, review, audit, stats, admin skill and unknown routes cannot be delegated.
 }
