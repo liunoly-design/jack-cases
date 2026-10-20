@@ -45,3 +45,24 @@ CREATE INDEX IF NOT EXISTS requirement_tags_tag_idx ON requirement_tags(tag_id);
 CREATE INDEX IF NOT EXISTS case_tags_tag_idx ON case_tags(tag_id);
 `);
 export const db=drizzle(sqlite,{schema});
+
+// Additive medical-platform migration: legacy content/media stay untouched.
+for(const table of ['requirements','cases']){
+  const existing=new Set((sqlite.pragma('table_info('+table+')') as {name:string}[]).map(c=>c.name));
+  for(const [name,definition] of Object.entries({requirement_code:'TEXT',content_version:"TEXT NOT NULL DEFAULT 'v1.0'",...(table==='cases'?{public_content:'TEXT'}:{})})){
+    if(!existing.has(name))sqlite.exec('ALTER TABLE '+table+' ADD COLUMN '+name+' '+definition);
+  }
+}
+sqlite.exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS requirements_code_unique ON requirements(requirement_code);
+CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL REFERENCES users(id),storage_key TEXT NOT NULL,name TEXT NOT NULL,purpose TEXT NOT NULL,mime_type TEXT NOT NULL,size INTEGER NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS requirement_files(requirement_id TEXT NOT NULL REFERENCES requirements(id),file_id TEXT NOT NULL REFERENCES files(id),PRIMARY KEY(requirement_id,file_id));
+CREATE TABLE IF NOT EXISTS case_files(case_id TEXT NOT NULL REFERENCES cases(id),file_id TEXT NOT NULL REFERENCES files(id),approved INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(case_id,file_id));
+`);
+// Stable codes for historical rows; never rewrite legacy body or UUID.
+const backfill=sqlite.transaction(()=>{
+  let next=Number((sqlite.prepare("SELECT MAX(CAST(SUBSTR(requirement_code,9) AS INTEGER)) AS n FROM requirements WHERE requirement_code GLOB 'MED-REQ-[0-9]*'").get() as {n:number}).n||0)+1;
+  for(const row of sqlite.prepare('SELECT id FROM requirements WHERE requirement_code IS NULL ORDER BY created_at,id').all() as {id:string}[]){
+    sqlite.prepare('UPDATE requirements SET requirement_code=? WHERE id=?').run('MED-REQ-'+String(next++).padStart(4,'0'),row.id);
+  }
+});backfill();
