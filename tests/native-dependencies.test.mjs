@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,7 +51,7 @@ test('built API restarts with persisted SQLite and decodable resized/private ima
   await new Promise(resolve => listener.close(resolve));
   const base = `http://127.0.0.1:${port}/api`;
   const env = { ...process.env, PORT: String(port), DATABASE_URL: path.join(temp, 'api.db'),
-    STORAGE_DIR: path.join(temp, 'files'), TMPDIR: temp, SESSION_SECRET: 'native-regression-only-stable-secret-32chars' };
+    STORAGE_DIR: path.join(temp, 'files'), TMPDIR: temp, SESSION_SECRET: 'native-regression-only-stable-secret-32chars', API_KEY_ENCRYPTION_KEY: randomBytes(32).toString('hex'), TRUSTED_PROXY_IPS: '' };
   let child, exited, logs = '';
   const stop = async () => {
     if (!child) return;

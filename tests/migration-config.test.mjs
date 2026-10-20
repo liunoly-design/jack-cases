@@ -95,11 +95,12 @@ test('populated legacy migration preserves records and PR #10 extensions; later 
   assert.equal(migrate(env).status, 0); assert.deepEqual(rows(db), after);
   const folder = path.join(dir, 'migrations'); fs.cpSync(path.join(root, 'apps/api/drizzle'), folder, { recursive: true });
   const journalFile = path.join(folder, 'meta/_journal.json'); const journal = JSON.parse(fs.readFileSync(journalFile));
-  journal.entries.push({ idx: journal.entries.length, version: '6', when: journal.entries.at(-1).when + 1, tag: '0003_future', breakpoints: true });
-  fs.writeFileSync(journalFile, JSON.stringify(journal)); fs.writeFileSync(path.join(folder, '0003_future.sql'), 'ALTER TABLE users ADD COLUMN future_note TEXT;');
+  const tag=String(journal.entries.length).padStart(4,'0')+'_future';
+  journal.entries.push({ idx: journal.entries.length, version: '6', when: journal.entries.at(-1).when + 1, tag, breakpoints: true });
+  fs.writeFileSync(journalFile, JSON.stringify(journal)); fs.writeFileSync(path.join(folder, tag+'.sql'), 'ALTER TABLE users ADD COLUMN future_note TEXT;');
   const code = `import Database from 'better-sqlite3'; import {migrateDatabase} from './apps/api/src/migrations.ts'; const db=new Database(process.env.DATABASE_URL); migrateDatabase(db,${JSON.stringify(folder)}); migrateDatabase(db,${JSON.stringify(folder)}); db.close();`;
   const later = run(['-e', code], env); assert.equal(later.status, 0, later.output);
-  assert.equal(db.prepare('SELECT count(*) n FROM __drizzle_migrations').get().n, migrationCount + 1);
+  assert.equal(db.prepare('SELECT count(*) n FROM __drizzle_migrations').get().n, migrationCount+1);
   assert.ok(db.prepare('PRAGMA table_info(users)').all().some(c => c.name === 'future_note'));
   assert.deepEqual(rows(db).slice(1), after.slice(1));
 });
